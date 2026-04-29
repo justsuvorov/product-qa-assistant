@@ -1,7 +1,11 @@
 import time
 from abc import ABC, abstractmethod
 
+import httpx
+from google import genai
 from loguru import logger
+
+from product_assistant.core.config import settings
 
 _OVERLOAD_MESSAGE = "LLM модель перегружена. Повторите запрос позже."
 
@@ -106,9 +110,6 @@ class GeminiModel(ServiceLLMModel):
     """Google Gemini через google-genai SDK."""
 
     def __init__(self):
-        from google import genai
-        from product_assistant.core.config import settings
-
         self._client = genai.Client(api_key=settings.gemini_api_key.get_secret_value())
         self._generation_config = genai.types.GenerateContentConfig(
             temperature=settings.ai_temperature,
@@ -119,8 +120,6 @@ class GeminiModel(ServiceLLMModel):
         self._model_name = settings.model_name
 
     def _call_api(self, query: str) -> str:
-        from product_assistant.core.config import settings
-
         result = self._client.models.generate_content(
             model=self._model_name,
             contents=query,
@@ -147,7 +146,6 @@ class OllamaModel(LocalAIModel):
     def load_model(self, **kwargs):
         # Ollama управляет моделью сам — проверяем только доступность сервера
         try:
-            import httpx
             resp = httpx.get(f"{self._base_url}/api/tags", timeout=5)
             resp.raise_for_status()
             available = [m["name"] for m in resp.json().get("models", [])]
@@ -164,8 +162,6 @@ class OllamaModel(LocalAIModel):
             self._model = None
 
     def response(self, query: str) -> str:
-        import httpx
-
         if not self.is_loaded():
             raise RuntimeError("Ollama сервер недоступен")
 

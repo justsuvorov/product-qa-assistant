@@ -8,10 +8,28 @@
 import io
 import os
 import re
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 import httpx
 from loguru import logger
+
+try:
+    import pymupdf as fitz
+except ImportError:
+    try:
+        import fitz
+    except ImportError:
+        fitz = None
+
+try:
+    from docx import Document as DocxDocument
+except ImportError:
+    DocxDocument = None
+
+try:
+    from pptx import Presentation
+except ImportError:
+    Presentation = None
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx"}
 
@@ -96,14 +114,9 @@ def _clean(text: str) -> str:
 
 
 def _extract_pdf(content: bytes, url: str) -> str | None:
-    try:
-        import pymupdf as fitz
-    except ImportError:
-        try:
-            import fitz
-        except ImportError:
-            logger.error("pymupdf не установлен: pip install pymupdf")
-            return None
+    if fitz is None:
+        logger.error("pymupdf не установлен: pip install pymupdf")
+        return None
     try:
         doc = fitz.open(stream=io.BytesIO(content), filetype="pdf")
         text = "\n".join(page.get_text() for page in doc)
@@ -119,13 +132,11 @@ def _extract_pdf(content: bytes, url: str) -> str | None:
 
 
 def _extract_docx(content: bytes, url: str) -> str | None:
-    try:
-        from docx import Document
-    except ImportError:
+    if DocxDocument is None:
         logger.error("python-docx не установлен: pip install python-docx")
         return None
     try:
-        doc = Document(io.BytesIO(content))
+        doc = DocxDocument(io.BytesIO(content))
         parts = []
         for para in doc.paragraphs:
             if para.text.strip():
@@ -148,9 +159,7 @@ def _extract_docx(content: bytes, url: str) -> str | None:
 
 
 def _extract_pptx(content: bytes, url: str) -> str | None:
-    try:
-        from pptx import Presentation
-    except ImportError:
+    if Presentation is None:
         logger.error("python-pptx не установлен: pip install python-pptx")
         return None
     try:

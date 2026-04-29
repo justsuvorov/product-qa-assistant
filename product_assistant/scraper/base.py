@@ -7,6 +7,8 @@ from abc import ABC, abstractmethod
 import re
 from urllib.parse import urlparse
 
+import requests
+from bs4 import BeautifulSoup
 from loguru import logger
 
 
@@ -52,9 +54,6 @@ class BaseScraper(ABC):
 
     def _sitemap_urls(self) -> list[str]:
         """Забирает URL из sitemap.xml, фильтруя по base_url."""
-        import requests
-        from bs4 import BeautifulSoup
-
         sitemap = self._base_url + "/sitemap.xml"
         resp = requests.get(sitemap, timeout=10, headers={"User-Agent": "ProductQABot/1.0"})
         resp.raise_for_status()

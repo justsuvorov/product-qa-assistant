@@ -218,6 +218,30 @@ ORDER BY q.created_at DESC LIMIT 10;
 
 ---
 
+## Тесты
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/ -v
+```
+
+60 юнит-тестов покрывают:
+
+| Модуль | Что проверяется |
+|--------|----------------|
+| `PostProcessor` | Очистка кода/кавычек, вводные фразы, нормализация, экранирование MarkdownV2 |
+| `PromptEngine` | Сборка промпта, обработка отсутствующих ключей |
+| `TextPreprocessor` | Очистка текста, поиск продукта по словам, полный pipeline |
+| `ReportExport` | Структура JSON-ответа, запись в БД, обработка ошибок БД |
+| `AIAssistantService` | Порядок вызова компонентов, передача product_id |
+| `ServiceLLMModel` | Retry-логика: перегрузка 503, исчерпание попыток, нештатные ошибки |
+| `document_parser` | Определение расширений, нормализация текста |
+| `BaseScraper` / `create_scraper` | Резолюция URL, фабрика парсеров, автодетект |
+
+Тесты не требуют подключения к БД, LLM или браузеру — все внешние зависимости замокированы.
+
+---
+
 ## Структура проекта
 
 ```
@@ -245,9 +269,11 @@ product_assistant/
 └── services/
     └── assistant.py          # AIAssistantService (оркестратор)
 main.py                       # FastAPI + lifespan (парсинг при старте)
-bot_main.py                   # Telegram-бот (aiogram 3, F.text)
+bot_main.py                   # Telegram-бо�� (aiogram 3, F.text)
+tests/                        # Юнит-тесты (pytest, 60 тестов)
 Dockerfile
 docker-compose.yaml
 .env.example
 requirements.txt
+requirements-dev.txt          # pytest + зависимости для тестов
 ```

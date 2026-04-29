@@ -16,6 +16,13 @@ from loguru import logger
 from product_assistant.scraper.base import BaseScraper
 from product_assistant.scraper.document_parser import find_document_links, extract_document_text
 
+try:
+    from playwright.sync_api import sync_playwright
+    _PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    sync_playwright = None
+    _PLAYWRIGHT_AVAILABLE = False
+
 
 class PlaywrightScraper(BaseScraper):
 
@@ -24,9 +31,7 @@ class PlaywrightScraper(BaseScraper):
             logger.warning("PRODUCTS_WEBSITE_URL не задан — парсинг пропущен")
             return []
 
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError:
+        if not _PLAYWRIGHT_AVAILABLE:
             logger.error(
                 "Playwright не установлен. "
                 "Выполните: pip install playwright && playwright install chromium"

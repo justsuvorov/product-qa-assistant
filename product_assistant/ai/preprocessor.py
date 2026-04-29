@@ -1,8 +1,10 @@
 import re
 from dataclasses import dataclass
 
+from sqlalchemy import update
+
 from product_assistant.ai.promt_builders import PromptEngine
-from product_assistant.models.schema import DBObject
+from product_assistant.models.schema import DBObject, UserQuestion
 
 
 @dataclass
@@ -32,8 +34,6 @@ class TextPreprocessor(Preprocessor):
         cleaned = _clean_text(question_record.question_text)
 
         # Сохраняем очищенный текст
-        from sqlalchemy import update
-        from product_assistant.models.schema import UserQuestion
         self._db.connection.execute(
             update(UserQuestion)
             .where(UserQuestion.id == self._request.message_id)
