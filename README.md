@@ -14,11 +14,14 @@
 
 | Компонент | Технология |
 |-----------|-----------|
-| API | Python 3.10+, FastAPI |
-| LLM | Google Gemini 1.5 Flash (заменяется на любую модель) |
+| API | Python 3.11+, FastAPI |
+| LLM | Google Gemini (любая модель через `AI_MODEL_NAME`) |
 | База данных | PostgreSQL, SQLAlchemy 2.0 |
-| Парсинг сайта | BeautifulSoup4, Requests |
+| Парсинг сайта | Playwright (SPA) / Requests (статика) — автовыбор |
+| Документы | PDF (pymupdf), DOCX (python-docx), PPTX (python-pptx) |
+| Логирование | Loguru |
 | Telegram Bot | aiogram 3 |
+| Прокси | Shadowsocks (SOCKS5) |
 
 ---
 
@@ -43,6 +46,7 @@
   │   • сборка промпта: роль + контент продукта + вопрос │
   ├─────────────────────────────────────────────────────┤
   │ GeminiModel → ответ LLM                              │
+  │   • retry x3 при 503 UNAVAILABLE (пауза 5 сек)      │
   ├─────────────────────────────────────────────────────┤
   │ PostProcessor → форматирование для Telegram          │
   ├─────────────────────────────────────────────────────┤
@@ -57,11 +61,47 @@
 
 ```
 FastAPI lifespan
-  → ProductScraper.scrape_all()
-      → обходит PRODUCTS_WEBSITE_URL
-      → парсит страницы продуктов (BeautifulSoup)
+  → ScraperDetector.detect(url)          # авто: requests или playwright
+  → Scraper.scrape_all()
+      → для каждой страницы продукта:
+          • HTML-текст страницы
+          • вкладки/виджеты (те же URL с ?param=...)
+          • документы: PDF, DOCX, PPTX
       → upsert в таблицу products
 ```
+
+---
+
+## Парсер сайта
+
+### Типы парсеров
+
+| Тип | Когда использовать |
+|-----|--------------------|
+| `requests` | Статический HTML (WordPress, Django, 1C-Bitrix) |
+| `playwright` | SPA с JS-рендерингом (React, Vue, Next.js) |
+| `auto` | Автоопределение по структуре страницы (рекомендуется) |
+
+**Детектор** (`scraper/detector.py`) анализирует:
+- Наличие `<div id="root|app|__next">` — SPA-маркеры
+- Webpack/Vite bundle-скрипты (`chunk.abc123.js`)
+- Объём текста в ответе (< 300 символов → JS-рендеринг)
+
+### Парсинг документов
+
+Playwright-парсер автоматически находит и обрабатывает вложенные документы:
+
+| Формат | Библиотека | Что извлекается |
+|--------|-----------|-----------------|
+| PDF | pymupdf | Весь текст постранично |
+| DOCX | python-docx | Параграфы + таблицы |
+| PPTX | python-pptx | Текст по слайдам |
+
+### Парсинг вкладок / виджетов
+
+Если сайт использует query-параметры для переключения контента
+(например `?t=qa`, `?t=insuranceCase`), парсер автоматически обходит все такие
+ссылки на той же странице и добавляет их текст к продукту.
 
 ---
 
@@ -73,7 +113,7 @@ FastAPI lifespan
 | `id` | PK |
 | `name` | Название продукта |
 | `url` | URL страницы продукта |
-| `content` | Полный текст страницы |
+| `content` | Текст страницы + вкладки + документы |
 | `scraped_at` | Дата последнего парсинга |
 
 ### `user_questions`
@@ -120,47 +160,61 @@ FastAPI lifespan
 Скопируйте `.env.example` в `.env` и заполните:
 
 ```env
-DATABASE_URL=postgresql://user:password@localhost:5432/product_qa
+DATABASE_URL=postgresql://user:password@db:5432/product_assistant
 GEMINI_API_KEY=your_gemini_key
 TELEGRAM_BOT_TOKEN=your_telegram_token
-PRODUCTS_WEBSITE_URL=https://your-products-site.ru
 
-# Опционально
-AI_MODEL_NAME=gemini-1.5-flash
+PRODUCTS_WEBSITE_URL=https://your-products-site.ru
+SCRAPER_TYPE=auto
+PRODUCT_PATHS=/path/to/product1,/path/to/product2
+
+AI_MODEL_NAME=gemini-2.0-flash
 AI_TEMPERATURE=0.3
+
+# Прокси (если Gemini/Telegram недоступны напрямую)
+HTTP_PROXY=socks5://ss-client:1080
+HTTPS_PROXY=socks5://ss-client:1080
+PROXY_URL=socks5://ss-client:1080
+SS_ADDRESS=your.ss.server.com
+SS_PORT=9000
+SS_PASSWORD=your_password
 ```
 
-### 2. Установка зависимостей
+### 2. Docker (рекомендуется)
+
+```bash
+# Сборка и запуск (прокси нужен только для pull образов)
+$env:HTTPS_PROXY = ""; $env:HTTP_PROXY = ""; docker compose up --build
+```
+
+Порядок запуска: `db` + `ss-client` → `api` (парсинг сайта) → `bot`
+
+### 3. Локальный запуск
 
 ```bash
 pip install -r requirements.txt
-```
+playwright install chromium   # если SCRAPER_TYPE=playwright или auto
 
-### 3. Запуск FastAPI
-
-```bash
 uvicorn main:app --host 0.0.0.0 --port 8000
-```
-
-При старте автоматически:
-- создаются таблицы в БД
-- запускается парсинг сайта продуктов
-
-### 4. Запуск Telegram-бота
-
-```bash
 python bot_main.py
 ```
 
----
+### 4. Просмотр данных в БД
 
-## Адаптация парсера
+```bash
+docker exec -it product_qa_db psql -U postgres -d product_assistant
+```
 
-Парсер в [product_assistant/scraper/parser.py](product_assistant/scraper/parser.py) использует
-универсальные CSS-селекторы. Если структура вашего сайта нестандартная — адаптируйте два метода:
+```sql
+-- Спарсенные продукты
+SELECT id, name, url, scraped_at FROM products;
 
-- `_collect_product_links()` — логика сбора ссылок на продукты с главной страницы
-- `_parse_product_page()` — извлечение названия и текста из страницы продукта
+-- Вопросы и ответы
+SELECT q.question_text, p.name AS product, q.result_text
+FROM user_questions q
+LEFT JOIN products p ON q.product_id = p.id
+ORDER BY q.created_at DESC LIMIT 10;
+```
 
 ---
 
@@ -169,23 +223,31 @@ python bot_main.py
 ```
 product_assistant/
 ├── ai/
-│   ├── model.py           # GeminiModel (AIModel ABC)
-│   ├── preprocessor.py    # TextPreprocessor + поиск продукта
-│   ├── promt_builders.py  # PromptEngine
-│   └── postprocessor.py   # Форматирование ответа LLM
+│   ├── model.py              # GeminiModel (AIModel ABC) + retry логика
+│   ├── preprocessor.py       # TextPreprocessor + поиск продукта по словам
+│   ├── promt_builders.py     # PromptEngine
+│   └── postprocessor.py      # Форматирование ответа LLM
 ├── core/
-│   ├── config.py          # Settings (pydantic-settings)
-│   └── database.py        # SQLAlchemy engine + init_db
+│   ├── config.py             # Settings (pydantic-settings, .env)
+│   └── database.py           # SQLAlchemy engine + init_db
 ├── models/
-│   ├── request.py         # APIRequest (Pydantic)
-│   └── schema.py          # ORM: Product, UserQuestion, DBObject
+│   ├── request.py            # APIRequest (Pydantic)
+│   └── schema.py             # ORM: Product, UserQuestion, DBObject
 ├── reports/
-│   └── report_export.py   # Сохранение результата + формирование JSON
+│   └── report_export.py      # Сохранение результата + JSON-ответ
 ├── scraper/
-│   └── parser.py          # ProductScraper (BeautifulSoup)
+│   ├── base.py               # BaseScraper (ABC) + утилиты
+│   ├── detector.py           # ScraperDetector — авто выбор типа парсера
+│   ├── requests_scraper.py   # Парсер статических сайтов
+│   ├── playwright_scraper.py # Парсер SPA + вкладки + документы
+│   ├── document_parser.py    # Извлечение текста: PDF, DOCX, PPTX
+│   └── __init__.py           # Фабрика create_scraper()
 └── services/
-    └── assistant.py       # AIAssistantService (оркестратор)
-main.py                    # FastAPI + lifespan
-bot_main.py                # Telegram-бот (aiogram 3)
+    └── assistant.py          # AIAssistantService (оркестратор)
+main.py                       # FastAPI + lifespan (парсинг при старте)
+bot_main.py                   # Telegram-бот (aiogram 3, F.text)
+Dockerfile
+docker-compose.yaml
+.env.example
 requirements.txt
 ```
