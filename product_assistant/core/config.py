@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     # Products website to scrape
     products_website_url: str = Field("", alias="PRODUCTS_WEBSITE_URL")
 
+    # "requests" — статический HTML; "playwright" — JS-рендеринг (SPA)
+    scraper_type: str = Field("playwright", alias="SCRAPER_TYPE")
+
+    # Явные пути продуктов (через запятую), напр.: /avto/kasko,/avto/osago
+    # Если не задано — берётся из sitemap.xml
+    product_paths: str = Field("", alias="PRODUCT_PATHS")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

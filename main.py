@@ -1,6 +1,7 @@
-import logging
 import traceback
 from contextlib import asynccontextmanager
+
+from loguru import logger
 
 from fastapi import FastAPI, status
 from fastapi.encoders import jsonable_encoder
@@ -15,16 +16,18 @@ from product_assistant.core.database import get_db_connection, init_db
 from product_assistant.models.request import APIRequest
 from product_assistant.models.schema import DBObject
 from product_assistant.reports.report_export import ReportExport
-from product_assistant.scraper.parser import ProductScraper
+from product_assistant.scraper import create_scraper
 from product_assistant.services.assistant import AIAssistantService
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 def _run_scraping():
     """Парсит сайт и сохраняет продукты в БД."""
-    scraper = ProductScraper(base_url=settings.products_website_url)
+    paths = [p.strip() for p in settings.product_paths.split(",") if p.strip()] or None
+    scraper = create_scraper(
+        scraper_type=settings.scraper_type,
+        base_url=settings.products_website_url,
+        product_paths=paths,
+    )
     products = scraper.scrape_all()
 
     if not products:

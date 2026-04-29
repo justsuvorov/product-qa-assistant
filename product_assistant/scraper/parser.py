@@ -1,131 +1,156 @@
 """
-Парсер сайта продуктов.
+Парсер сайта продуктов с поддержкой JavaScript-рендеринга (Playwright).
 
 Логика:
-1. Загружаем главную страницу (PRODUCTS_WEBSITE_URL).
-2. Находим ссылки на страницы отдельных продуктов.
-3. Для каждой страницы продукта извлекаем название и основной текст.
+1. Берём список URL продуктов из sitemap.xml (или из PRODUCT_PATHS в конфиге).
+2. Для каждого URL открываем страницу в headless-браузере, ждём загрузки контента.
+3. Извлекаем название (h1) и основной текст.
 4. Сохраняем / обновляем записи в таблице products.
 
-Адаптируйте селекторы (CSS/тег) под структуру конкретного сайта.
+Playwright нужен, если сайт — SPA (React/Vue/Next.js и т.п.).
+Установка браузера: playwright install chromium
 """
 
 import logging
 import re
 from urllib.parse import urljoin, urlparse
 
-import requests
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
+# Явный список путей продуктов относительно base_url.
+# Заполняется автоматически из sitemap, но можно задать вручную.
+VSK_AVTO_PATHS = [
+    "/klientam/avto/kasko",
+    "/klientam/avto/kasko-kompakt-minimum",
+    "/klientam/avto/osago",
+    "/klientam/avto/zelenaya-karta",
+]
+
 
 class ProductScraper:
-    def __init__(self, base_url: str, timeout: int = 15):
+    def __init__(self, base_url: str, timeout: int = 30, product_paths: list[str] | None = None):
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
-        self._session = requests.Session()
-        self._session.headers.update({
-            "User-Agent": (
-                "Mozilla/5.0 (compatible; ProductQABot/1.0)"
-            )
-        })
+        # Явные пути имеют приоритет; иначе берём из sitemap
+        self._product_paths = product_paths
 
     def scrape_all(self) -> list[dict]:
-        """
-        Парсит все продукты с сайта.
-        Возвращает список словарей: [{name, url, content}, ...].
-        """
         if not self._base_url:
             logger.warning("PRODUCTS_WEBSITE_URL не задан — парсинг пропущен")
             return []
 
-        try:
-            product_links = self._collect_product_links()
-        except Exception as exc:
-            logger.error("Ошибка при получении списка продуктов: %s", exc)
+        urls = self._resolve_product_urls()
+        if not urls:
+            logger.warning("Список URL продуктов пуст")
             return []
 
         results = []
-        for url in product_links:
-            try:
-                data = self._parse_product_page(url)
-                if data:
-                    results.append(data)
-            except Exception as exc:
-                logger.warning("Не удалось спарсить %s: %s", url, exc)
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            logger.error(
+                "Playwright не установлен. Выполните: pip install playwright && playwright install chromium"
+            )
+            return []
 
-        logger.info("Спарсено продуктов: %d", len(results))
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.set_extra_http_headers({"Accept-Language": "ru-RU,ru;q=0.9"})
+
+            for url in urls:
+                try:
+                    data = self._parse_page(page, url)
+                    if data:
+                        results.append(data)
+                        logger.info("Спарсен продукт: %s", data["name"])
+                except Exception as exc:
+                    logger.warning("Не удалось спарсить %s: %s", url, exc)
+
+            browser.close()
+
+        logger.info("Итого спарсено продуктов: %d", len(results))
         return results
 
     # ------------------------------------------------------------------
-    # Внутренние методы — адаптируйте под структуру конкретного сайта
-    # ------------------------------------------------------------------
 
-    def _collect_product_links(self) -> list[str]:
+    def _resolve_product_urls(self) -> list[str]:
+        """Возвращает полные URL продуктов."""
+        if self._product_paths:
+            return [self._base_url + p for p in self._product_paths]
+
+        # Пробуем взять из sitemap
+        try:
+            sitemap_urls = self._parse_sitemap()
+            if sitemap_urls:
+                return sitemap_urls
+        except Exception as exc:
+            logger.warning("Не удалось получить sitemap: %s", exc)
+
+        # Фолбэк: сам base_url
+        return [self._base_url]
+
+    def _parse_sitemap(self) -> list[str]:
+        """Парсит sitemap.xml и возвращает URL из нужного раздела."""
+        import requests as req
+        sitemap_url = self._base_url + "/sitemap.xml"
+        resp = req.get(sitemap_url, timeout=10, headers={"User-Agent": "ProductQABot/1.0"})
+        resp.raise_for_status()
+
+        soup = BeautifulSoup(resp.text, "xml")
+        base_path = urlparse(self._base_url).path.rstrip("/")
+
+        urls = []
+        for loc in soup.find_all("loc"):
+            url = loc.get_text(strip=True)
+            parsed = urlparse(url)
+            # Берём только URL того же домена и того же раздела
+            if parsed.netloc == urlparse(self._base_url).netloc:
+                if base_path and parsed.path.startswith(base_path):
+                    urls.append(url)
+        return urls
+
+    def _parse_page(self, page, url: str) -> dict | None:
         """
-        Собирает ссылки на страницы продуктов с главной страницы.
-        Стратегия по умолчанию: берём все <a href>, принадлежащие
-        тому же домену и содержащие ключевые слова.
+        Открывает страницу через Playwright, ждёт загрузки и извлекает контент.
         """
-        html = self._get(self._base_url)
-        soup = BeautifulSoup(html, "html.parser")
+        page.goto(url, wait_until="networkidle", timeout=self._timeout * 1000)
 
-        base_domain = urlparse(self._base_url).netloc
-        links = set()
+        # Ждём появления h1 — признак завершения рендеринга
+        try:
+            page.wait_for_selector("h1", timeout=10_000)
+        except Exception:
+            pass
 
-        for tag in soup.find_all("a", href=True):
-            href = tag["href"].strip()
-            full_url = urljoin(self._base_url, href)
-            parsed = urlparse(full_url)
+        html = page.content()
+        soup = BeautifulSoup(html, "lxml")
 
-            # Только ссылки того же домена, без якорей
-            if parsed.netloc == base_domain and not parsed.fragment:
-                links.add(full_url.split("?")[0])  # убираем query-параметры
+        # Название
+        h1 = soup.find("h1")
+        name = h1.get_text(strip=True) if h1 else urlparse(url).path.strip("/").split("/")[-1]
 
-        # Если не нашли дочерних страниц — считаем, что весь контент на главной
-        if not links or links == {self._base_url}:
-            return [self._base_url]
+        # Убираем ненужные блоки
+        for tag in soup.find_all(["nav", "header", "footer", "script", "style", "noscript"]):
+            tag.decompose()
 
-        return list(links)
-
-    def _parse_product_page(self, url: str) -> dict | None:
-        """
-        Парсит одну страницу продукта.
-        Адаптируйте селекторы под разметку вашего сайта.
-        """
-        html = self._get(url)
-        soup = BeautifulSoup(html, "html.parser")
-
-        # Название продукта: ищем h1, затем title
-        name_tag = soup.find("h1") or soup.find("title")
-        name = name_tag.get_text(strip=True) if name_tag else url
-
-        # Основной контент: ищем <main>, <article>, или весь <body>
+        # Основной контент
         content_tag = (
             soup.find("main")
             or soup.find("article")
-            or soup.find("div", class_=re.compile(r"content|product|detail", re.I))
+            or soup.find("div", class_=re.compile(r"content|product|page|container", re.I))
             or soup.body
         )
 
         if not content_tag:
             return None
 
-        # Удаляем навигацию, футеры, скрипты
-        for unwanted in content_tag.find_all(["nav", "footer", "script", "style", "header"]):
-            unwanted.decompose()
-
         text = content_tag.get_text(separator="\n", strip=True)
         text = re.sub(r'\n{3,}', '\n\n', text)
 
-        if len(text) < 50:
+        if len(text) < 100:
+            logger.debug("Слишком мало текста на %s (%d символов)", url, len(text))
             return None
 
         return {"name": name, "url": url, "content": text}
-
-    def _get(self, url: str) -> str:
-        response = self._session.get(url, timeout=self._timeout)
-        response.raise_for_status()
-        response.encoding = response.apparent_encoding
-        return response.text

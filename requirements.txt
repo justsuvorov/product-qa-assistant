@@ -8,9 +8,10 @@ aiogram
 gunicorn
 aiohttp_socks
 psycopg2-binary
-python-multipart
 httpx[socks]
 socksio>=1.0.0
 beautifulsoup4
 requests
 lxml
+playwright
+loguru

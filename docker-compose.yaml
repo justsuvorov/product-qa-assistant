@@ -1,0 +1,105 @@
+services:
+
+  db:
+    image: postgres:15-alpine
+    container_name: product_qa_db
+    restart: always
+    env_file: .env
+    environment:
+      - POSTGRES_USER=${DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-password}
+      - POSTGRES_DB=${DB_NAME:-product_assistant}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-product_assistant}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ss-client:
+    image: shadowsocks/shadowsocks-libev
+    container_name: ss_client
+    restart: always
+    env_file: .env
+    ports:
+      - "1080:1080"
+    command: >
+      ss-local
+      -s ${SS_ADDRESS}
+      -p ${SS_PORT}
+      -k "${SS_PASSWORD}"
+      -m chacha20-ietf-poly1305
+      -b 0.0.0.0
+      -l 1080
+      -u --fast-open -t 300
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 2048
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "1080"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    container_name: product_qa_api
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+      ss-client:
+        condition: service_healthy
+    env_file: .env
+    ports:
+      - "8000:80"
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@db:5432/${DB_NAME:-product_assistant}
+      - WEB_CONCURRENCY=1
+      - PRODUCTS_WEBSITE_URL=${PRODUCTS_WEBSITE_URL}
+      - SCRAPER_TYPE=${SCRAPER_TYPE:-playwright}
+      - PRODUCT_PATHS=${PRODUCT_PATHS:-}
+      - HTTP_PROXY=${PROXY_URL}
+      - HTTPS_PROXY=${PROXY_URL}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  bot:
+    build: .
+    container_name: product_qa_bot
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      ss-client:
+        condition: service_healthy
+    env_file: .env
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@db:5432/${DB_NAME:-product_assistant}
+      - FASTAPI_URL=http://api:80/api/update
+      - HTTP_PROXY=${PROXY_URL}
+      - HTTPS_PROXY=${PROXY_URL}
+      - NO_PROXY=api,db,localhost,127.0.0.1
+    entrypoint: ["python", "bot_main.py"]
+
+volumes:
+  postgres_data:
