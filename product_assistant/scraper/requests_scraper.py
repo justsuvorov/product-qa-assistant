@@ -34,11 +34,11 @@ class RequestsScraper(BaseScraper):
                 data = self._parse_page(url)
                 if data:
                     results.append(data)
-                    logger.info("Спарсен продукт: %s", data["name"])
+                    logger.info("Спарсен продукт: {}", data["name"])
             except Exception as exc:
-                logger.warning("Не удалось спарсить %s: %s", url, exc)
+                logger.warning("Не удалось спарсить {}: {}", url, exc)
 
-        logger.info("Итого спарсено (requests): %d", len(results))
+        logger.info("Итого спарсено (requests): {}", len(results))
         return results
 
     def _parse_page(self, url: str) -> dict | None:

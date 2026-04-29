@@ -35,14 +35,18 @@ class BaseScraper(ABC):
             return []
 
         if self._product_paths:
-            return [self._base_url + p for p in self._product_paths]
+            # PRODUCT_PATHS — абсолютные пути от корня домена (/klientam/avto/kasko).
+            # Берём только scheme+netloc, чтобы не дублировать путь из base_url.
+            parsed = urlparse(self._base_url)
+            domain = f"{parsed.scheme}://{parsed.netloc}"
+            return [domain + p for p in self._product_paths]
 
         try:
             urls = self._sitemap_urls()
             if urls:
                 return urls
         except Exception as exc:
-            logger.warning("Не удалось получить sitemap: %s", exc)
+            logger.warning("Не удалось получить sitemap: {}", exc)
 
         return [self._base_url]
 

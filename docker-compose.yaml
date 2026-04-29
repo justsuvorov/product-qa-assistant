@@ -51,7 +51,14 @@ services:
       retries: 5
 
   api:
-    build: .
+    build:
+      context: .
+      args:
+        # Сборка идёт на хосте, где ss-client ещё не запущен.
+        # Обнуляем прокси для build-стадии — Docker Hub и Playwright CDN доступны напрямую.
+        HTTP_PROXY: ""
+        HTTPS_PROXY: ""
+        NO_PROXY: "*"
     container_name: product_qa_api
     restart: always
     depends_on:
@@ -80,7 +87,12 @@ services:
       start_period: 60s
 
   bot:
-    build: .
+    build:
+      context: .
+      args:
+        HTTP_PROXY: ""
+        HTTPS_PROXY: ""
+        NO_PROXY: "*"
     container_name: product_qa_bot
     restart: always
     depends_on:

@@ -6,6 +6,7 @@
     playwright install chromium
 """
 
+import os
 import re
 from urllib.parse import urlparse
 
@@ -13,6 +14,7 @@ from bs4 import BeautifulSoup
 from loguru import logger
 
 from product_assistant.scraper.base import BaseScraper
+from product_assistant.scraper.pdf_parser import extract_pdf_text
 
 
 class PlaywrightScraper(BaseScraper):
@@ -34,8 +36,11 @@ class PlaywrightScraper(BaseScraper):
         urls = self._resolve_product_urls()
         results = []
 
+        proxy_url = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+        proxy = {"server": proxy_url} if proxy_url else None
+
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True)
+            browser = pw.chromium.launch(headless=True, proxy=proxy)
             ctx = browser.new_context(locale="ru-RU")
             page = ctx.new_page()
 
@@ -44,19 +49,18 @@ class PlaywrightScraper(BaseScraper):
                     data = self._parse_page(page, url)
                     if data:
                         results.append(data)
-                        logger.info("Спарсен продукт: %s", data["name"])
+                        logger.info("Спарсен продукт: {}", data["name"])
                 except Exception as exc:
-                    logger.warning("Не удалось спарсить %s: %s", url, exc)
+                    logger.warning("Не удалось спарсить {}: {}", url, exc)
 
             browser.close()
 
-        logger.info("Итого спарсено (playwright): %d", len(results))
+        logger.info("Итого спарсено (playwright): {}", len(results))
         return results
 
     def _parse_page(self, page, url: str) -> dict | None:
-        page.goto(url, wait_until="networkidle", timeout=self._timeout * 1000)
+        page.goto(url, wait_until="load", timeout=self._timeout * 1000)
 
-        # Ждём появления h1 как признака завершения рендеринга
         try:
             page.wait_for_selector("h1", timeout=10_000)
         except Exception:
@@ -68,6 +72,37 @@ class PlaywrightScraper(BaseScraper):
         h1 = soup.find("h1")
         name = h1.get_text(strip=True) if h1 else urlparse(url).path.strip("/").split("/")[-1]
 
+        # PDF-ссылки через JS — браузер резолвит абсолютный URL корректно
+        pdf_links = page.evaluate("""
+            () => Array.from(document.querySelectorAll('a[href]'))
+                .filter(a => a.href.toLowerCase().includes('.pdf'))
+                .map(a => ({ url: a.href, title: a.textContent.trim() || a.href }))
+        """)
+
+        # Вкладки/виджеты: ссылки с тем же pathname, но другими query-параметрами
+        tab_links = page.evaluate("""
+            (currentUrl) => {
+                const base = new URL(currentUrl);
+                const seen = new Set([base.search]);
+                return Array.from(document.querySelectorAll('a[href]'))
+                    .map(a => {
+                        try {
+                            const u = new URL(a.href);
+                            return { url: a.href, title: a.textContent.trim() || a.href, search: u.search };
+                        } catch { return null; }
+                    })
+                    .filter(item => {
+                        if (!item) return false;
+                        const u = new URL(item.url);
+                        if (u.pathname !== base.pathname) return false;
+                        if (!u.search || seen.has(u.search)) return false;
+                        seen.add(u.search);
+                        return true;
+                    });
+            }
+        """, url)
+
+        # Основной текст страницы
         for tag in soup.find_all(["nav", "header", "footer", "script", "style", "noscript"]):
             tag.decompose()
 
@@ -81,8 +116,63 @@ class PlaywrightScraper(BaseScraper):
         if not content_tag:
             return None
 
-        text = self._clean_text(content_tag.get_text(separator="\n", strip=True))
-        if len(text) < 100:
+        sections = [self._clean_text(content_tag.get_text(separator="\n", strip=True))]
+
+        # Контент вкладок
+        for tab in tab_links:
+            logger.info("Парсим вкладку: {} ({})", tab["title"], tab["url"])
+            tab_text = self._extract_tab_content(page, tab["url"])
+            if tab_text:
+                sections.append(f"=== {tab['title']} ===\n{tab_text}")
+
+        # PDF-документы
+        for pdf in pdf_links:
+            logger.info("Обрабатываю PDF: {} ({})", pdf["title"], pdf["url"])
+            pdf_text = extract_pdf_text(pdf["url"], timeout=self._timeout)
+            if pdf_text:
+                sections.append(f"--- Документ: {pdf['title']} ---\n{pdf_text}")
+
+        if pdf_links:
+            logger.info("PDF на странице {}: {}", url, len(pdf_links))
+        if tab_links:
+            logger.info("Вкладок на странице {}: {}", url, len(tab_links))
+
+        full_content = "\n\n".join(s for s in sections if s)
+
+        if len(full_content) < 100:
             return None
 
-        return {"name": name, "url": url, "content": text}
+        return {"name": name, "url": url, "content": full_content}
+
+    def _extract_tab_content(self, page, url: str) -> str | None:
+        """Открывает вкладку по URL и возвращает её текст."""
+        try:
+            page.goto(url, wait_until="load", timeout=self._timeout * 1000)
+            # Ждём появления контента вкладки
+            try:
+                page.wait_for_selector("main, article, [class*='content']", timeout=8_000)
+            except Exception:
+                pass
+
+            html = page.content()
+            soup = BeautifulSoup(html, "lxml")
+
+            for tag in soup.find_all(["nav", "header", "footer", "script", "style", "noscript"]):
+                tag.decompose()
+
+            content_tag = (
+                soup.find("main")
+                or soup.find("article")
+                or soup.find("div", class_=re.compile(r"content|product|page|container", re.I))
+                or soup.body
+            )
+
+            if not content_tag:
+                return None
+
+            text = self._clean_text(content_tag.get_text(separator="\n", strip=True))
+            return text if len(text) > 50 else None
+
+        except Exception as exc:
+            logger.warning("Ошибка при парсинге вкладки {}: {}", url, exc)
+            return None

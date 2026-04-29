@@ -1,3 +1,4 @@
+import asyncio
 import traceback
 from contextlib import asynccontextmanager
 
@@ -46,10 +47,11 @@ def _run_scraping():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Создаём таблицы и парсим сайт при старте
     init_db()
     logger.info("Запуск парсинга сайта продуктов...")
-    _run_scraping()
+    # Playwright Sync API нельзя вызывать из asyncio event loop напрямую.
+    # asyncio.to_thread запускает _run_scraping в отдельном потоке без event loop.
+    await asyncio.to_thread(_run_scraping)
     yield
 
 
