@@ -16,3 +16,5 @@ lxml
 playwright
 loguru
 pymupdf
+python-docx
+python-pptx

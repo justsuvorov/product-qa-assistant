@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 from loguru import logger
 
 from product_assistant.scraper.base import BaseScraper
-from product_assistant.scraper.pdf_parser import extract_pdf_text
+from product_assistant.scraper.document_parser import find_document_links, extract_document_text
 
 
 class PlaywrightScraper(BaseScraper):
@@ -72,12 +72,8 @@ class PlaywrightScraper(BaseScraper):
         h1 = soup.find("h1")
         name = h1.get_text(strip=True) if h1 else urlparse(url).path.strip("/").split("/")[-1]
 
-        # PDF-ссылки через JS — браузер резолвит абсолютный URL корректно
-        pdf_links = page.evaluate("""
-            () => Array.from(document.querySelectorAll('a[href]'))
-                .filter(a => a.href.toLowerCase().includes('.pdf'))
-                .map(a => ({ url: a.href, title: a.textContent.trim() || a.href }))
-        """)
+        # Документы (PDF, DOCX, PPTX) — через JS для корректного URL
+        doc_links = find_document_links(page, url)
 
         # Вкладки/виджеты: ссылки с тем же pathname, но другими query-параметрами
         tab_links = page.evaluate("""
@@ -125,15 +121,15 @@ class PlaywrightScraper(BaseScraper):
             if tab_text:
                 sections.append(f"=== {tab['title']} ===\n{tab_text}")
 
-        # PDF-документы
-        for pdf in pdf_links:
-            logger.info("Обрабатываю PDF: {} ({})", pdf["title"], pdf["url"])
-            pdf_text = extract_pdf_text(pdf["url"], timeout=self._timeout)
-            if pdf_text:
-                sections.append(f"--- Документ: {pdf['title']} ---\n{pdf_text}")
+        # Документы (PDF / DOCX / PPTX)
+        for doc in doc_links:
+            logger.info("Обрабатываю {} ({}): {}", doc["ext"].upper(), doc["title"], doc["url"])
+            doc_text = extract_document_text(doc["url"], timeout=self._timeout)
+            if doc_text:
+                sections.append(f"--- Документ [{doc['ext'].upper()}]: {doc['title']} ---\n{doc_text}")
 
-        if pdf_links:
-            logger.info("PDF на странице {}: {}", url, len(pdf_links))
+        if doc_links:
+            logger.info("Документов на странице {}: {}", url, len(doc_links))
         if tab_links:
             logger.info("Вкладок на странице {}: {}", url, len(tab_links))
 
