@@ -10,7 +10,7 @@ services:
       - POSTGRES_PASSWORD=${DB_PASSWORD:-password}
       - POSTGRES_DB=${DB_NAME:-product_assistant}
     ports:
-      - "5433:5432"
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -25,7 +25,7 @@ services:
     restart: always
     env_file: .env
     ports:
-      - "1081:1080"
+      - "1080:1080"
     command: >
       ss-local
       -s ${SS_ADDRESS}
@@ -68,7 +68,7 @@ services:
         condition: service_healthy
     env_file: .env
     ports:
-      - "8001:80"
+      - "8000:80"
     volumes:
       - .:/app
     environment:
