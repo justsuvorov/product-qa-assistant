@@ -21,7 +21,7 @@ services:
 
   ss-client:
     image: shadowsocks/shadowsocks-libev
-    container_name: ss_client
+    container_name: product_qa_ss_client
     restart: always
     env_file: .env
     ports:
