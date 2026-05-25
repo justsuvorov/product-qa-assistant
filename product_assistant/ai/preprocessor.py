@@ -32,7 +32,12 @@ class TextPreprocessor(Preprocessor):
     def query(self) -> tuple[str, int | None]:
         question_record = self._db.get_question(self._request.message_id)
         cleaned = _clean_text(question_record.question_text)
-        context = self._db.get_context(self._request.user_id)
+        user_id = self._request.user_id if self._request.user_id is not None else question_record.user_id
+        context = (
+            self._db.get_context(user_id, exclude_message_id=self._request.message_id)
+            if user_id is not None
+            else []
+        )
 
         # Сохраняем очищенный текст
         self._db.connection.execute(

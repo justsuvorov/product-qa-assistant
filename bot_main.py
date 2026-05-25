@@ -34,7 +34,10 @@ async def handle_text(message: Message):
 
         # Отправляем в FastAPI для обработки
         async with httpx.AsyncClient(timeout=120.0) as client:
-            payload = {"message_id": question.id}
+            payload = {
+                "message_id": question.id,
+                "user_id": question.user_id,
+            }
             response = await client.post(FASTAPI_URL, json=payload)
 
         if response.status_code == 200:
