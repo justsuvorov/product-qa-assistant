@@ -32,7 +32,6 @@ class TextPreprocessor(Preprocessor):
     def query(self) -> tuple[str, int | None]:
         question_record = self._db.get_question(self._request.message_id)
         cleaned = _clean_text(question_record.question_text)
-        context = self._db.get_context(self._request.user_id)
 
         # Сохраняем очищенный текст
         self._db.connection.execute(
@@ -52,7 +51,7 @@ class TextPreprocessor(Preprocessor):
             product_info = "Информация о продукте не найдена в базе данных."
             product_id = None
 
-        prompt = self._prompt_engine.build(question=cleaned, product_info=product_info, context=context)
+        prompt = self._prompt_engine.build(question=cleaned, product_info=product_info)
         return prompt, product_id
 
 
