@@ -1,6 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timedelta, UTC
 from sqlalchemy import select, Text, String, Integer, update, DateTime, ForeignKey, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
+
 
 
 class Base(DeclarativeBase):
@@ -49,6 +50,43 @@ class DBObject:
         if not result:
             raise ValueError(f"Вопрос с id={message_id} не найден")
         return result
+
+    def get_context(self, user_id: int, hours: int = 1) -> list[dict]:
+        """
+            Возвращает историю диалога пользователя
+            за последний час.
+            """
+        time_border = datetime.now(UTC) - timedelta(hours=hours)
+
+        stmt = (
+            select(UserQuestion)
+            .where(UserQuestion.user_id == user_id)
+            .where(UserQuestion.created_at >= time_border)
+            .order_by(UserQuestion.created_at.desc())
+        )
+
+        rows = self.connection.execute(stmt).scalars().all()
+
+        context = []
+
+        for row in rows:
+
+            user_text = row.question_text.strip()
+
+            context.append({
+                "role": "user",
+                "content": user_text,
+            })
+
+            if row.result_text:
+
+                assistant_text = row.result_text.strip()
+
+                context.append({
+                    "role": "assistant",
+                    "content": assistant_text,
+                })
+        return context
 
     def update_result(self, message_id: int, result_text: str, product_id: int | None = None):
         stmt = (
