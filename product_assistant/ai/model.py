@@ -1,8 +1,8 @@
+import re
 import time
 from abc import ABC, abstractmethod
 
 import httpx
-from google import genai
 from loguru import logger
 
 from product_assistant.core.config import settings
@@ -60,14 +60,13 @@ class LocalAIModel(AIModel, ABC):
 class ServiceLLMModel(AIModel, ABC):
     """
     Интерфейс для LLM-моделей, доступных через внешний API.
-    Примеры: Gemini, OpenAI, YandexGPT, GigaChat, Claude.
+    Примеры: Qwen, Gemini, OpenAI, YandexGPT.
 
     Встроенная retry-логика при перегрузке сервиса (503 / UNAVAILABLE).
     Наследник обязан реализовать:
         - _call_api() — один запрос к API без retry
     """
 
-    # Переопределяй в наследнике при необходимости
     retries: int = 3
     retry_delay: int = 5
 
@@ -106,28 +105,27 @@ class ServiceLLMModel(AIModel, ABC):
 # Реализации
 # ==============================================================================
 
-class GeminiModel(ServiceLLMModel):
-    """Google Gemini через google-genai SDK."""
+class QwenModel(ServiceLLMModel):
+    """Qwen через OpenAI-совместимый /v1/completions API."""
 
     def __init__(self):
-        self._client = genai.Client(api_key=settings.gemini_api_key.get_secret_value())
-        self._generation_config = genai.types.GenerateContentConfig(
-            temperature=settings.ai_temperature,
-            top_p=0.95,
-            top_k=64,
-            max_output_tokens=4096,
-        )
-        self._model_name = settings.model_name
+        self._api_url = settings.qwen_api_url
+        self._model_name = settings.qwen_model_name
+        self._client = httpx.Client(timeout=120)
 
     def _call_api(self, query: str) -> str:
-        result = self._client.models.generate_content(
-            model=self._model_name,
-            contents=query,
-            config=self._generation_config,
+        resp = self._client.post(
+            self._api_url,
+            json={"model": self._model_name, "prompt": query},
         )
-        if not result or not result.text:
-            raise ValueError("Gemini не вернула текст")
-        return result.text.strip()
+        resp.raise_for_status()
+        data = resp.json()
+        text = data["choices"][0]["text"]
+        # Qwen3 thinking-модели оборачивают рассуждение в <think>...</think> — убираем
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+        if not text:
+            raise ValueError("Qwen не вернул текст")
+        return text
 
 
 class OllamaModel(LocalAIModel):
@@ -144,7 +142,6 @@ class OllamaModel(LocalAIModel):
         super().__init__(model_name=model_name)
 
     def load_model(self, **kwargs):
-        # Ollama управляет моделью сам — проверяем только доступность сервера
         try:
             resp = httpx.get(f"{self._base_url}/api/tags", timeout=5)
             resp.raise_for_status()

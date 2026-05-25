@@ -1,16 +1,6 @@
 FROM tiangolo/uvicorn-gunicorn-fastapi:python3.11
 
-# Обнуляем прокси для стадии сборки (значения передаются из docker-compose build.args)
-ARG HTTP_PROXY=""
-ARG HTTPS_PROXY=""
-ARG NO_PROXY="*"
-ENV HTTP_PROXY=${HTTP_PROXY}
-ENV HTTPS_PROXY=${HTTPS_PROXY}
-ENV NO_PROXY=${NO_PROXY}
-
 # libpq-dev + gcc — для psycopg2
-# Системные зависимости Playwright устанавливаются вместе с ним ниже,
-# поэтому apt-get update не чистим до конца этого блока
 RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
@@ -23,7 +13,6 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt
 
 # Chromium + все системные зависимости в одном слое
-# (playwright сам вызывает apt-get update внутри)
 RUN playwright install chromium --with-deps
 
 COPY . .

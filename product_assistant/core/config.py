@@ -5,9 +5,9 @@ from pydantic import Field, SecretStr
 class Settings(BaseSettings):
     database_url: str = Field(..., alias="DATABASE_URL")
 
-    # AI
-    gemini_api_key: SecretStr = Field(..., alias="GEMINI_API_KEY")
-    model_name: str = Field("gemini-1.5-flash", alias="AI_MODEL_NAME")
+    # AI — Qwen через внутренний OpenAI-compatible API
+    qwen_api_url: str = Field("", alias="QWEN_API_URL")
+    qwen_model_name: str = Field("Qwen3.6-35B-A3B", alias="QWEN_MODEL_NAME")
     ai_temperature: float = Field(0.3, alias="AI_TEMPERATURE")
 
     # Telegram
@@ -20,7 +20,6 @@ class Settings(BaseSettings):
     scraper_type: str = Field("playwright", alias="SCRAPER_TYPE")
 
     # Явные пути продуктов (через запятую), напр.: /avto/kasko,/avto/osago
-    # Если не задано — берётся из sitemap.xml
     product_paths: str = Field("", alias="PRODUCT_PATHS")
 
     model_config = SettingsConfigDict(

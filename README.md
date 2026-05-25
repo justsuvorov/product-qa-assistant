@@ -15,13 +15,12 @@
 | Компонент | Технология |
 |-----------|-----------|
 | API | Python 3.11+, FastAPI |
-| LLM | Google Gemini (любая модель через `AI_MODEL_NAME`) |
+| LLM | Qwen (внутренний OpenAI-compatible API) |
 | База данных | PostgreSQL, SQLAlchemy 2.0 |
 | Парсинг сайта | Playwright (SPA) / Requests (статика) — автовыбор |
 | Документы | PDF (pymupdf), DOCX (python-docx), PPTX (python-pptx) |
 | Логирование | Loguru |
 | Telegram Bot | aiogram 3 |
-| Прокси | Shadowsocks (SOCKS5) |
 
 ---
 
@@ -45,8 +44,9 @@
   │   • поиск продукта в таблице products (по словам)    │
   │   • сборка промпта: роль + контент продукта + вопрос │
   ├─────────────────────────────────────────────────────┤
-  │ GeminiModel → ответ LLM                              │
+  │ QwenModel → ответ LLM                                │
   │   • retry x3 при 503 UNAVAILABLE (пауза 5 сек)      │
+  │   • очистка <think>...</think> тегов                 │
   ├─────────────────────────────────────────────────────┤
   │ PostProcessor → форматирование для Telegram          │
   ├─────────────────────────────────────────────────────┤
@@ -161,33 +161,24 @@ Playwright-парсер автоматически находит и обраб�
 
 ```env
 DATABASE_URL=postgresql://user:password@db:5432/product_assistant
-GEMINI_API_KEY=your_gemini_key
 TELEGRAM_BOT_TOKEN=your_telegram_token
 
 PRODUCTS_WEBSITE_URL=https://your-products-site.ru
 SCRAPER_TYPE=auto
 PRODUCT_PATHS=/path/to/product1,/path/to/product2
 
-AI_MODEL_NAME=gemini-2.0-flash
+QWEN_API_URL=https://model-1.ai-api.vsk.ru/v1/completions
+QWEN_MODEL_NAME=Qwen3.6-35B-A3B
 AI_TEMPERATURE=0.3
-
-# Прокси (если Gemini/Telegram недоступны напрямую)
-HTTP_PROXY=socks5://ss-client:1080
-HTTPS_PROXY=socks5://ss-client:1080
-PROXY_URL=socks5://ss-client:1080
-SS_ADDRESS=your.ss.server.com
-SS_PORT=9000
-SS_PASSWORD=your_password
 ```
 
 ### 2. Docker (рекомендуется)
 
 ```bash
-# Сборка и запуск (прокси нужен только для pull образов)
-$env:HTTPS_PROXY = ""; $env:HTTP_PROXY = ""; docker compose up --build
+docker compose up --build
 ```
 
-Порядок запуска: `db` + `ss-client` → `api` (парсинг сайта) → `bot`
+Порядок запуска: `db` → `api` (парсинг сайта при старте) → `bot`
 
 ### 3. Локальный запуск
 
@@ -247,7 +238,7 @@ pytest tests/ -v
 ```
 product_assistant/
 ├── ai/
-│   ├── model.py              # GeminiModel (AIModel ABC) + retry логика
+│   ├── model.py              # QwenModel / OllamaModel (AIModel ABC) + retry логика
 │   ├── preprocessor.py       # TextPreprocessor + поиск продукта по словам
 │   ├── promt_builders.py     # PromptEngine
 │   └── postprocessor.py      # Форматирование ответа LLM
@@ -269,7 +260,7 @@ product_assistant/
 └── services/
     └── assistant.py          # AIAssistantService (оркестратор)
 main.py                       # FastAPI + lifespan (парсинг при старте)
-bot_main.py                   # Telegram-бо�� (aiogram 3, F.text)
+bot_main.py                   # Telegram-бот (aiogram 3, F.text)
 tests/                        # Юнит-тесты (pytest, 60 тестов)
 Dockerfile
 docker-compose.yaml
