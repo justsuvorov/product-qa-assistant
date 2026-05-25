@@ -51,8 +51,11 @@ class TextPreprocessor(Preprocessor):
         else:
             product_info = "Информация о продукте не найдена в базе данных."
             product_id = None
+        if context:
+            prompt = self._prompt_engine.build(question=cleaned, product_info=product_info, context=context)
+        else:
+            prompt = self._prompt_engine.build(question=cleaned, product_info=product_info)
 
-        prompt = self._prompt_engine.build(question=cleaned, product_info=product_info, context=context)
         return prompt, product_id
 
 

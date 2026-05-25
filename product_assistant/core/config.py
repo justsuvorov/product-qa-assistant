@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     ai_prompt_template: str = """
 {role}
 ### ИСТОРИЯ ДИАЛОГА:
-{content}
+{context}
 
 ### ИНФОРМАЦИЯ О ПРОДУКТЕ:
 {product_info}
