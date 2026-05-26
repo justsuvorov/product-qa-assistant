@@ -10,7 +10,7 @@ from product_assistant.models.schema import DBObject, UserQuestion
 @dataclass
 class ProcessingTask:
     message_id: int
-    user_id: int = None
+    user_id: int
 
 
 class Preprocessor:
@@ -44,6 +44,8 @@ class TextPreprocessor(Preprocessor):
 
         products = self._db.get_all_products()
         product = _find_best_product(cleaned, products)
+        if product is None and context:
+            product = self._db.get_last_product_for_user(self._request.user_id)
 
         if product:
             product_info = f"Продукт: {product.name}\n\n{product.content}"

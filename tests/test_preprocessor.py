@@ -78,12 +78,13 @@ def test_text_preprocessor_query_returns_prompt_and_product_id():
 
     db = MagicMock()
     db.get_question.return_value = question_record
+    db.get_context.return_value = []
     db.get_all_products.return_value = [product]
     db.connection.execute.return_value = None
     db.connection.commit.return_value = None
 
     engine = PromptEngine(role="R", template="{role}\n{product_info}\n{question}")
-    task = ProcessingTask(message_id=1)
+    task = ProcessingTask(message_id=1, user_id=1)
     preprocessor = TextPreprocessor(db_object=db, request=task, prompt_engine=engine)
 
     prompt, product_id = preprocessor.query()
@@ -99,12 +100,14 @@ def test_text_preprocessor_query_no_product_returns_none_id():
 
     db = MagicMock()
     db.get_question.return_value = question_record
+    db.get_context.return_value = []
+    db.get_last_product_for_user.return_value = None
     db.get_all_products.return_value = []
     db.connection.execute.return_value = None
     db.connection.commit.return_value = None
 
     engine = PromptEngine(role="R", template="{role}\n{product_info}\n{question}")
-    task = ProcessingTask(message_id=1)
+    task = ProcessingTask(message_id=1, user_id=1)
     preprocessor = TextPreprocessor(db_object=db, request=task, prompt_engine=engine)
 
     _, product_id = preprocessor.query()

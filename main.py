@@ -61,7 +61,7 @@ app = FastAPI(lifespan=lifespan)
 @app.post("/api/update")
 def process_question(request: APIRequest):
     task = ProcessingTask(message_id=request.message_id, user_id=request.user_id)
-    logger.info("Запрос получен: message_id=%d", request.message_id)
+    logger.info("Запрос получен: message_id={}", request.message_id)
 
     db_session = get_db_connection()
     db = DBObject(connection=db_session)

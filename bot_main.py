@@ -15,7 +15,7 @@ _session = AiohttpSession(proxy=_proxy_url) if _proxy_url else None
 bot = Bot(token=settings.telegram_bot_token.get_secret_value(), session=_session)
 dp = Dispatcher()
 
-FASTAPI_URL = os.getenv("FASTAPI_URL", "http://api:80/api/update")
+FASTAPI_URL = os.getenv("FASTAPI_URL", "http://127.0.0.1:8000/api/update")
 
 
 @dp.message(F.text)
@@ -34,7 +34,10 @@ async def handle_text(message: Message):
 
         # Отправляем в FastAPI для обработки
         async with httpx.AsyncClient(timeout=120.0) as client:
-            payload = {"message_id": question.id}
+            payload = {
+                "message_id": question.id,
+                "user_id": question.user_id,
+            }
             response = await client.post(FASTAPI_URL, json=payload)
 
         if response.status_code == 200:
@@ -43,7 +46,7 @@ async def handle_text(message: Message):
             await status_msg.edit_text(f"✅ {answer}", parse_mode="MarkdownV2")
         else:
             await status_msg.edit_text(
-                f"❌ Ошибка сервера ({response.status_code}): {response.text}"
+                f"❌ Ошибка сервера ({response.status_code}): {response.text[:500]}"
             )
 
     except Exception as exc:

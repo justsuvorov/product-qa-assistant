@@ -51,11 +51,14 @@ class DBObject:
             raise ValueError(f"Вопрос с id={message_id} не найден")
         return result
 
-    def get_context(self, user_id: int, hours: int = 1) -> list[dict]:
+    def get_context(self, user_id: int | None, hours: int = 1) -> list[dict]:
         """
             Возвращает историю диалога пользователя
             за последний час.
             """
+        if user_id is None:
+            return []
+
         time_border = datetime.now(UTC) - timedelta(hours=hours)
 
         stmt = (
@@ -118,6 +121,23 @@ class DBObject:
 
     def get_all_products(self) -> list[Product]:
         return self.connection.execute(select(Product)).scalars().all()
+
+    def get_last_product_for_user(self, user_id: int | None) -> Product | None:
+        """Последний продукт, с которым работал пользователь (по product_id в вопросах)."""
+        if user_id is None:
+            return None
+
+        stmt = (
+            select(Product)
+            .join(UserQuestion, UserQuestion.product_id == Product.id)
+            .where(
+                UserQuestion.user_id == user_id,
+                UserQuestion.product_id.is_not(None),
+            )
+            .order_by(UserQuestion.created_at.desc())
+            .limit(1)
+        )
+        return self.connection.execute(stmt).scalar_one_or_none()
 
     def close(self):
         self.connection.close()
