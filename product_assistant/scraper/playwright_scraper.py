@@ -71,7 +71,13 @@ class PlaywrightScraper(BaseScraper):
         except Exception:
             pass
 
-        html = page.content()
+        # Ждём завершения клиентской навигации SPA перед чтением DOM
+        try:
+            page.wait_for_load_state("networkidle", timeout=8_000)
+        except Exception:
+            pass
+
+        html = self._safe_content(page)
         soup = BeautifulSoup(html, "lxml")
 
         h1 = soup.find("h1")
@@ -145,17 +151,33 @@ class PlaywrightScraper(BaseScraper):
 
         return {"name": name, "url": url, "content": full_content}
 
+    def _safe_content(self, page) -> str:
+        """Читает page.content() с повтором если страница ещё навигируется."""
+        for _ in range(3):
+            try:
+                return page.content()
+            except Exception as exc:
+                if "navigating" in str(exc).lower():
+                    page.wait_for_load_state("load", timeout=10_000)
+                else:
+                    raise
+        return page.content()
+
     def _extract_tab_content(self, page, url: str) -> str | None:
         """Открывает вкладку по URL и возвращает её текст."""
         try:
             page.goto(url, wait_until="load", timeout=self._timeout * 1000)
-            # Ждём появления контента вкладки
             try:
                 page.wait_for_selector("main, article, [class*='content']", timeout=8_000)
             except Exception:
                 pass
 
-            html = page.content()
+            try:
+                page.wait_for_load_state("networkidle", timeout=8_000)
+            except Exception:
+                pass
+
+            html = self._safe_content(page)
             soup = BeautifulSoup(html, "lxml")
 
             for tag in soup.find_all(["nav", "header", "footer", "script", "style", "noscript"]):
