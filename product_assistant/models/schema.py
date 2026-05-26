@@ -51,25 +51,19 @@ class DBObject:
             raise ValueError(f"Вопрос с id={message_id} не найден")
         return result
 
-    def get_context(self, user_id: int, hours: int = 1, exclude_message_id: int | None = None) -> list[dict]:
+    def get_context(self, user_id: int, hours: int = 1) -> list[dict]:
         """
             Возвращает историю диалога пользователя
             за последний час.
             """
-        if user_id is None:
-            return []
-
         time_border = datetime.now(UTC) - timedelta(hours=hours)
 
         stmt = (
             select(UserQuestion)
             .where(UserQuestion.user_id == user_id)
             .where(UserQuestion.created_at >= time_border)
-            .where(UserQuestion.result_text.isnot(None))
-            .order_by(UserQuestion.created_at.asc())
+            .order_by(UserQuestion.created_at.desc())
         )
-        if exclude_message_id is not None:
-            stmt = stmt.where(UserQuestion.id != exclude_message_id)
 
         rows = self.connection.execute(stmt).scalars().all()
 
