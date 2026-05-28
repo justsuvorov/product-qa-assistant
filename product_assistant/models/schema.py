@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, UTC
-from sqlalchemy import select, Text, String, Integer, update, DateTime, ForeignKey, func
+from sqlalchemy import select, Text, String, Integer, BigInteger, update, DateTime, ForeignKey, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
 
@@ -24,7 +24,7 @@ class UserQuestion(Base):
     __tablename__ = "user_questions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(Integer, nullable=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     question_text: Mapped[str] = mapped_column(Text)
     cleaned_text: Mapped[str] = mapped_column(Text, nullable=True)
     product_id: Mapped[int] = mapped_column(Integer, ForeignKey("products.id"), nullable=True)
