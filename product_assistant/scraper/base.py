@@ -38,37 +38,57 @@ class BaseScraper(ABC):
 
         if self._product_paths:
             # PRODUCT_PATHS — абсолютные пути от корня домена (/klientam/avto/kasko).
-            # Берём только scheme+netloc, чтобы не дублировать путь из base_url.
             parsed = urlparse(self._base_url)
             domain = f"{parsed.scheme}://{parsed.netloc}"
             return [domain + p for p in self._product_paths]
 
         try:
+            logger.info("PRODUCT_PATHS не задан. Запускаю автопоиск продуктов через sitemap.xml...")
             urls = self._sitemap_urls()
             if urls:
+                logger.info("Автопоиск успешно нашёл {} страниц продуктов.", len(urls))
                 return urls
         except Exception as exc:
             logger.warning("Не удалось получить sitemap: {}", exc)
 
-        return [self._base_url]
+        # Если sitemap пустой, возвращаем целевую страницу как единственную точку входа
+        parsed = urlparse(self._base_url)
+        domain = f"{parsed.scheme}://{parsed.netloc}"
+        return [domain + "/klientam"]
 
     def _sitemap_urls(self) -> list[str]:
-        """Забирает URL из sitemap.xml, фильтруя по base_url."""
-        sitemap = self._base_url + "/sitemap.xml"
-        resp = requests.get(sitemap, timeout=10, headers={"User-Agent": "ProductQABot/1.0"})
+        """Забирает URL из sitemap.xml, фильтруя продукты для клиентов."""
+        parsed_base = urlparse(self._base_url)
+        # Принудительно стучимся в корень домена за sitemap
+        sitemap = f"{parsed_base.scheme}://{parsed_base.netloc}/sitemap.xml"
+
+        resp = requests.get(
+            sitemap,
+            timeout=15,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        )
         resp.raise_for_status()
 
         soup = BeautifulSoup(resp.text, "xml")
-        base_path = urlparse(self._base_url).path.rstrip("/")
-        base_netloc = urlparse(self._base_url).netloc
+        base_netloc = parsed_base.netloc
 
         urls = []
         for loc in soup.find_all("loc"):
             url = loc.get_text(strip=True)
             parsed = urlparse(url)
-            if parsed.netloc == base_netloc and parsed.path.startswith(base_path):
-                urls.append(url)
-        return urls
+
+            # Фильтр 1: Ссылка принадлежит тому же домену ВСК
+            if parsed.netloc == base_netloc:
+                path = parsed.path
+
+                # Фильтр 2: Нам нужны только страницы физических клиентов,
+                # но исключаем служебные разделы и саму корневую страницу /klientam
+                if path.startswith("/klientam/") and len(path.strip("/").split("/")) > 1:
+                    # Исключаем заведомо ненужные разделы (офисы, новости внутри klientam, если они есть)
+                    if not any(x in path for x in ["/offices", "/news", "/faq"]):
+                        urls.append(url)
+
+        return list(set(urls))  # Убираем дубликаты, если они есть в sitemap
 
     @staticmethod
     def _clean_text(text: str) -> str:
