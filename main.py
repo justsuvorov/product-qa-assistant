@@ -3,12 +3,13 @@ import traceback
 from contextlib import asynccontextmanager
 
 from loguru import logger
+from pydantic import BaseModel
 
 from fastapi import FastAPI, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from product_assistant.ai.model import GeminiModel
+from product_assistant.ai.model import GeminiModel, OllamaModel
 from product_assistant.ai.postprocessor import PostProcessor
 from product_assistant.ai.preprocessor import TextPreprocessor, ProcessingTask
 from product_assistant.ai.promt_builders import PromptEngine
@@ -57,6 +58,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+class ClearContextRequest(BaseModel):
+    user_id: int
+
 
 @app.post("/api/update")
 def process_question(request: APIRequest):
@@ -76,7 +80,7 @@ def process_question(request: APIRequest):
             ),
         ),
         postprocessor=PostProcessor(),
-        ai_model=GeminiModel(),
+        ai_model=OllamaModel(model_name='gemma4:31b-cloud', base_url="http://localhost:11434"),
         report_export=ReportExport(db_object=db, processing_task=task),
     )
 
@@ -85,6 +89,37 @@ def process_question(request: APIRequest):
         return JSONResponse(content=jsonable_encoder(response), status_code=status.HTTP_200_OK)
     except Exception:
         error = {"error": traceback.format_exc()}
+        return JSONResponse(content=jsonable_encoder(error), status_code=status.HTTP_400_BAD_REQUEST)
+    finally:
+        db_session.close()
+
+
+@app.post("/api/clear-context")
+def clear_user_context_endpoint(request: ClearContextRequest):
+    logger.info("Получен запрос на очистку контекста для user_id={}", request.user_id)
+
+    db_session = get_db_connection()
+    db = DBObject(connection=db_session)
+
+    try:
+        # Вызываем метод очистки из schema.py
+        success = db.clear_user_context(request.user_id)
+
+        if success:
+            return JSONResponse(
+                content={"status": "success", "message": "Контекст успешно очищен. Начат новый диалог!"},
+                status_code=status.HTTP_200_OK
+            )
+        else:
+            return JSONResponse(
+                content={"error": "Не удалось сбросить контекст для данного пользователя."},
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    except Exception:
+        error_trace = traceback.format_exc()
+        logger.error("Критическая ошибка при очистке контекста:\n{}", error_trace)
+        error = {"error": error_trace}
         return JSONResponse(content=jsonable_encoder(error), status_code=status.HTTP_400_BAD_REQUEST)
     finally:
         db_session.close()

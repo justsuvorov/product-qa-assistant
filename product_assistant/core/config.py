@@ -16,12 +16,23 @@ class Settings(BaseSettings):
     # Products website to scrape
     products_website_url: str = Field("", alias="PRODUCTS_WEBSITE_URL")
 
+    #Products to mapping
+    product_aliases_path: str = Field("product_aliases.json", alias="PRODUCT_ALIASES_PATH")
+
     # "requests" — статический HTML; "playwright" — JS-рендеринг (SPA)
     scraper_type: str = Field("playwright", alias="SCRAPER_TYPE")
 
     # Явные пути продуктов (через запятую), напр.: /avto/kasko,/avto/osago
     # Если не задано — берётся из sitemap.xml
     product_paths: str = Field("", alias="PRODUCT_PATHS")
+
+    # --- НАСТРОЙКИ ОБРАБОТКИ CAPTCHA ---
+    captcha_enabled: bool = True
+    captcha_provider: str = "none"  # Варианты: "none", "2captcha", "anticaptcha", "capmonster"
+    captcha_api_key: str | None = None
+    captcha_retry_count: int = 3
+    captcha_retry_delay: int = 5  # Пауза между попытками в секундах
+    captcha_stealth_mode: bool = True
 
     model_config = SettingsConfigDict(
         env_file=".env",
