@@ -2,7 +2,6 @@ from datetime import datetime, timedelta, UTC
 from sqlalchemy import select, Text, String, Integer, BigInteger, update, DateTime, ForeignKey, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
-from loguru import logger
 
 
 class Base(DeclarativeBase):
@@ -91,36 +90,6 @@ class DBObject:
                     "content": assistant_text,
                 })
         return context
-
-    def clear_user_context(self, user_id: int | None) -> bool:
-        """
-        Сбрасывает контекст текущей сессии для пользователя,
-        отвязывая его вопросы за последний час от user_id.
-        """
-        if user_id is None:
-            return False
-
-        try:
-            # Вычисляем временную границу в 1 час, как и в get_context
-            time_border = datetime.now(UTC) - timedelta(hours=1)
-
-            # Переводим вопросы за последний час в статус "гостевых" (user_id = None),
-            # чтобы они больше не попадали в выборку истории
-            stmt = (
-                update(UserQuestion)
-                .where(UserQuestion.user_id == user_id)
-                .where(UserQuestion.created_at >= time_border)
-                .values(user_id=None)
-            )
-
-            self.connection.execute(stmt)
-            self.connection.commit()
-            logger.info("Контекст диалога для пользователя {} успешно сброшен.", user_id)
-            return True
-        except Exception as e:
-            self.connection.rollback()
-            logger.error("Ошибка при очистке контекста для пользователя {}: {}", user_id, e)
-            return False
 
     def update_result(self, message_id: int, result_text: str, product_id: int | None = None):
         stmt = (
