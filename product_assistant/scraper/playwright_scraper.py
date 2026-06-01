@@ -48,46 +48,7 @@ class PlaywrightScraper(BaseScraper):
             browser = pw.chromium.launch(headless=True, proxy=proxy)
             ctx = browser.new_context(locale="ru-RU")
             page = ctx.new_page()
-            # === ТЕПЕРЬ С НАДЕЖНЫМ ОЖИДАНИЕМ ===
-            if len(urls) == 1 and (urls[0].endswith("/klientam") or urls[0].endswith("/klientam/")):
-                logger.info("Sitemap недоступен. Собираю ссылки динамически со страницы /klientam...")
-                try:
-                    # Изменили wait_until на "domcontentloaded" — это сработает мгновенно
-                    page.goto(urls[0], wait_until="domcontentloaded", timeout=self._timeout * 1000)
 
-                    # Даем сайту 3 секунды на то, чтобы JS дорисовал ссылки (вместо бесконечного ожидания сети)
-                    page.wait_for_timeout(3000)
-
-                    # На всякий случай проверяем, появились ли ссылки в футере или контенте
-                    try:
-                        page.wait_for_selector("a[href*='/klientam/']", timeout=5000)
-                    except Exception:
-                        logger.warning("Селектор ссылок не дождался, но пробуем собрать то, что есть")
-
-                    # Вытаскиваем все ссылки с тегом /klientam/
-                    dynamic_links = page.evaluate("""
-                                    () => Array.from(document.querySelectorAll('a[href]'))
-                                               .map(a => a.getAttribute('href'))
-                                """)
-
-                    discovered_urls = set()
-                    for href in dynamic_links:
-                        if href and href.startswith("/klientam/") and len(href.strip("/").split("/")) > 1:
-                            if not any(x in href for x in ["/offices", "/news", "/faq", "/reviews"]):
-                                # Формируем полный URL
-                                parsed_base = urlparse(self._base_url)
-                                discovered_urls.add(f"{parsed_base.scheme}://{parsed_base.netloc}{href}")
-
-                    if discovered_urls:
-                        urls = list(discovered_urls)
-                        logger.info("Динамически обнаружено продуктов для парсинга: {}", len(urls))
-                    else:
-                        logger.warning("Страница загрузилась, но ссылки на продукты не найдены.")
-
-                except Exception as e:
-                    logger.error("Не удалось собрать ссылки динамически: {}", e)
-
-            # === ОСНОВНОЙ ЦИКЛ ПАРСИНГА ===
             for url in urls:
                 try:
                     data = self._parse_page(page, url)
