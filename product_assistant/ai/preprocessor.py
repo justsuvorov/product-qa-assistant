@@ -11,7 +11,7 @@ from product_assistant.models.schema import DBObject, UserQuestion
 @dataclass
 class ProcessingTask:
     message_id: int
-    user_id: int
+    user_id: int = None
 
 
 class Preprocessor:
