@@ -30,6 +30,8 @@ class UserQuestion(Base):
     product_id: Mapped[int] = mapped_column(Integer, ForeignKey("products.id"), nullable=True)
     result_text: Mapped[str] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    created_at_for_model: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
 
 
 class DBObject:
@@ -51,7 +53,7 @@ class DBObject:
             raise ValueError(f"Вопрос с id={message_id} не найден")
         return result
 
-    def get_context(self, user_id: int | None, hours: int = 1) -> list[dict]:
+    def get_context(self, user_id: int | None, minutes: int = 20) -> list[dict]:
         """
             Возвращает историю диалога пользователя
             за последний час.
@@ -59,13 +61,13 @@ class DBObject:
         if user_id is None:
             return []
 
-        time_border = datetime.now(UTC) - timedelta(hours=hours)
+        time_border = datetime.now(UTC) - timedelta(minutes=minutes)
 
         stmt = (
             select(UserQuestion)
             .where(UserQuestion.user_id == user_id)
-            .where(UserQuestion.created_at >= time_border)
-            .order_by(UserQuestion.created_at.desc())
+            .where(UserQuestion.created_at_for_model >= time_border)
+            .order_by(UserQuestion.created_at_for_model.desc())
         )
 
         rows = self.connection.execute(stmt).scalars().all()
@@ -122,22 +124,39 @@ class DBObject:
     def get_all_products(self) -> list[Product]:
         return self.connection.execute(select(Product)).scalars().all()
 
-    def get_last_product_for_user(self, user_id: int | None) -> Product | None:
-        """Последний продукт, с которым работал пользователь (по product_id в вопросах)."""
+    def get_last_product_for_user(self, user_id: int | None, minutes: int = 20) -> Product | None:
+        """Последний продукт пользователя в пределах активного окна контекста."""
         if user_id is None:
             return None
 
+        time_border = datetime.now(UTC) - timedelta(minutes=minutes)
         stmt = (
             select(Product)
             .join(UserQuestion, UserQuestion.product_id == Product.id)
             .where(
                 UserQuestion.user_id == user_id,
                 UserQuestion.product_id.is_not(None),
+                UserQuestion.created_at_for_model >= time_border,
             )
-            .order_by(UserQuestion.created_at.desc())
+            .order_by(UserQuestion.created_at_for_model.desc())
             .limit(1)
         )
         return self.connection.execute(stmt).scalar_one_or_none()
+
+    def clear_user_context(self, user_id: int) -> int:
+        """Сбрасывает контекст пользователя без удаления сообщений."""
+        time_border = datetime.now(UTC) - timedelta(minutes=20)
+        stmt = (
+            update(UserQuestion)
+            .where(
+                UserQuestion.user_id == user_id,
+                UserQuestion.created_at_for_model >= time_border,
+            )
+            .values(created_at_for_model=datetime(2000, 1, 1))
+        )
+        result = self.connection.execute(stmt)
+        self.connection.commit()
+        return result.rowcount
 
     def close(self):
         self.connection.close()

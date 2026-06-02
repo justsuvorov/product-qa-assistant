@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import update
 
+from product_assistant.ai.product_mapper import ProductMapper
 from product_assistant.ai.promt_builders import PromptEngine
 from product_assistant.models.schema import DBObject, UserQuestion
 
@@ -24,14 +25,25 @@ class TextPreprocessor(Preprocessor):
     Возвращает (prompt_str, product_id | None).
     """
 
-    def __init__(self, db_object: DBObject, request: ProcessingTask, prompt_engine: PromptEngine):
+    def __init__(
+        self,
+        db_object: DBObject,
+        request: ProcessingTask,
+        prompt_engine: PromptEngine,
+        product_mapper: ProductMapper | None = None,
+    ):
         self._db = db_object
         self._request = request
         self._prompt_engine = prompt_engine
+        self._mapper = product_mapper or ProductMapper()
 
     def query(self) -> tuple[str, int | None]:
         question_record = self._db.get_question(self._request.message_id)
         cleaned = _clean_text(question_record.question_text)
+
+        # Нормализуем алиасы/аббревиатуры → официальные названия продуктов
+        cleaned = self._mapper.normalize(cleaned)
+
         context = self._db.get_context(self._request.user_id)
 
         # Сохраняем очищенный текст
@@ -53,6 +65,7 @@ class TextPreprocessor(Preprocessor):
         else:
             product_info = "Информация о продукте не найдена в базе данных."
             product_id = None
+
         if context:
             prompt = self._prompt_engine.build(question=cleaned, product_info=product_info, context=context)
         else:

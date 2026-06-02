@@ -2,7 +2,7 @@ import asyncio
 import os
 import httpx
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.client.session.aiohttp import AiohttpSession
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,27 @@ dp = Dispatcher()
 FASTAPI_URL = os.getenv("FASTAPI_URL", "http://127.0.0.1:8000/api/update")
 
 
+_BTN_CLEAR = "🗑 Очистить контекст"
+
+
+def _main_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=_BTN_CLEAR)]],
+        resize_keyboard=True,
+    )
+
+
+@dp.message(F.text == _BTN_CLEAR)
+async def handle_clear_context(message: Message):
+    db_session = get_db_connection()
+    db = DBObject(connection=db_session)
+    try:
+        db.clear_user_context(message.from_user.id)
+    finally:
+        db_session.close()
+    await message.answer("✅ Контекст диалога очищен. Можете задавать новый вопрос.")
+
+
 @dp.message(F.text)
 async def handle_text(message: Message):
     status_msg = await message.answer("⏳ Запрос получен, ищу информацию...")
@@ -26,13 +47,11 @@ async def handle_text(message: Message):
     db = DBObject(connection=db_session)
 
     try:
-        # Сохраняем вопрос в БД
         question = db.save_question(
             question_text=message.text,
             user_id=message.from_user.id if message.from_user else None,
         )
 
-        # Отправляем в FastAPI для обработки
         async with httpx.AsyncClient(timeout=120.0) as client:
             payload = {
                 "message_id": question.id,
@@ -40,17 +59,21 @@ async def handle_text(message: Message):
             }
             response = await client.post(FASTAPI_URL, json=payload)
 
+        await status_msg.delete()
+
         if response.status_code == 200:
             result = response.json()
             answer = result.get("payload", {}).get("text", "Ответ не получен")
-            await status_msg.edit_text(f"✅ {answer}", parse_mode="MarkdownV2")
+            await message.answer(f"✅ {answer}", parse_mode="MarkdownV2", reply_markup=_main_keyboard())
         else:
-            await status_msg.edit_text(
-                f"❌ Ошибка сервера ({response.status_code}): {response.text[:500]}"
+            await message.answer(
+                f"❌ Ошибка сервера ({response.status_code}): {response.text[:500]}",
+                reply_markup=_main_keyboard(),
             )
 
     except Exception as exc:
-        await status_msg.edit_text(f"💥 Произошла ошибка: {exc}")
+        await status_msg.delete()
+        await message.answer(f"💥 Произошла ошибка: {exc}", reply_markup=_main_keyboard())
     finally:
         db_session.close()
 

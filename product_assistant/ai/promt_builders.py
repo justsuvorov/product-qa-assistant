@@ -26,7 +26,6 @@ class PromptEngine:
                 product_info=product_info,
                 question=question,
             )
-
         except KeyError as e:
             raise ValueError(
                 f"Ошибка в шаблоне промпта: отсутствует ключ {e}")
