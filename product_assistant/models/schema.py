@@ -54,10 +54,7 @@ class DBObject:
         return result
 
     def get_context(self, user_id: int | None, minutes: int = 20) -> list[dict]:
-        """
-            Возвращает историю диалога пользователя
-            за последний час.
-            """
+        """Возвращает историю диалога пользователя за последние N минут."""
         if user_id is None:
             return []
 
@@ -67,7 +64,7 @@ class DBObject:
             select(UserQuestion)
             .where(UserQuestion.user_id == user_id)
             .where(UserQuestion.created_at_for_model >= time_border)
-            .order_by(UserQuestion.created_at_for_model.desc())
+            .order_by(UserQuestion.created_at_for_model.asc())
         )
 
         rows = self.connection.execute(stmt).scalars().all()
@@ -111,7 +108,7 @@ class DBObject:
         if existing:
             existing.name = name
             existing.content = content
-            existing.scraped_at = datetime.utcnow()
+            existing.scraped_at = datetime.now(UTC)
             self.connection.commit()
             return existing
 
@@ -152,7 +149,7 @@ class DBObject:
                 UserQuestion.user_id == user_id,
                 UserQuestion.created_at_for_model >= time_border,
             )
-            .values(created_at_for_model=datetime(2000, 1, 1))
+            .values(created_at_for_model=datetime(2000, 1, 1, tzinfo=UTC))
         )
         result = self.connection.execute(stmt)
         self.connection.commit()

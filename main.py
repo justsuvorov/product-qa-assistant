@@ -57,6 +57,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+product_mapper = ProductMapper(aliases_path=settings.product_aliases_path)
 
 @app.post("/api/update")
 def process_question(request: APIRequest):
@@ -74,7 +75,7 @@ def process_question(request: APIRequest):
                 role=settings.ai_role,
                 template=settings.ai_prompt_template,
             ),
-            product_mapper=ProductMapper(settings.product_aliases_path),
+            product_mapper=product_mapper,
         ),
         postprocessor=PostProcessor(),
         ai_model=GeminiModel(),
