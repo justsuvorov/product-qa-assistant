@@ -7,7 +7,7 @@ from product_assistant.ai.preprocessor import ProcessingTask
 @pytest.fixture
 def export():
     db = MagicMock()
-    task = ProcessingTask(message_id=42)
+    task = ProcessingTask(message_id=42, user_id=1)
     return ReportExport(db_object=db, processing_task=task)
 
 

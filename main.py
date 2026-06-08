@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from product_assistant.ai.model import GeminiModel
 from product_assistant.ai.postprocessor import PostProcessor
 from product_assistant.ai.preprocessor import TextPreprocessor, ProcessingTask
+from product_assistant.ai.product_mapper import ProductMapper
 from product_assistant.ai.promt_builders import PromptEngine
 from product_assistant.core.config import settings
 from product_assistant.core.database import get_db_connection, init_db
@@ -57,11 +58,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-
 @app.post("/api/update")
 def process_question(request: APIRequest):
     task = ProcessingTask(message_id=request.message_id, user_id=request.user_id)
-    logger.info("Запрос получен: message_id=%d", request.message_id)
+    logger.info("Запрос получен: message_id={}", request.message_id)
 
     db_session = get_db_connection()
     db = DBObject(connection=db_session)
@@ -74,6 +74,7 @@ def process_question(request: APIRequest):
                 role=settings.ai_role,
                 template=settings.ai_prompt_template,
             ),
+            product_mapper=ProductMapper(settings.product_aliases_path),
         ),
         postprocessor=PostProcessor(),
         ai_model=GeminiModel(),
