@@ -8,7 +8,7 @@ from fastapi import FastAPI, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from product_assistant.ai.model import GeminiModel
+from product_assistant.ai.model import QwenModel
 from product_assistant.ai.postprocessor import PostProcessor
 from product_assistant.ai.preprocessor import TextPreprocessor, ProcessingTask
 from product_assistant.ai.product_mapper import ProductMapper
@@ -78,7 +78,7 @@ def process_question(request: APIRequest):
             product_mapper=product_mapper,
         ),
         postprocessor=PostProcessor(),
-        ai_model=GeminiModel(),
+        ai_model=QwenModel(),
         report_export=ReportExport(db_object=db, processing_task=task),
     )
 
