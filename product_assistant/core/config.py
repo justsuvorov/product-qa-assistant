@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # Если не задано — берётся из sitemap.xml
     product_paths: str = Field("", alias="PRODUCT_PATHS")
 
+    # Путь до JSON-файла со словарём алиасов продуктов
+    product_aliases_path: str = Field("product_aliases.json", alias="PRODUCT_ALIASES_PATH")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -15,7 +15,7 @@ _session = AiohttpSession(proxy=_proxy_url) if _proxy_url else None
 bot = Bot(token=settings.telegram_bot_token.get_secret_value(), session=_session)
 dp = Dispatcher()
 
-FASTAPI_URL = os.getenv("FASTAPI_URL", "http://127.0.0.1:8000/api/update")
+FASTAPI_URL = os.getenv("FASTAPI_URL", "http://api:80/api/update")
 
 
 _BTN_CLEAR = "🗑 Очистить контекст"

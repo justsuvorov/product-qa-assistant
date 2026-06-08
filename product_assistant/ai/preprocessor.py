@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import update
 
-from product_assistant.ai.product_mapper import ProductMapper
+from product_assistant.ai.product_mapper import BaseProductMapper, ProductMapper
 from product_assistant.ai.promt_builders import PromptEngine
 from product_assistant.models.schema import DBObject, UserQuestion
 
@@ -30,7 +30,7 @@ class TextPreprocessor(Preprocessor):
         db_object: DBObject,
         request: ProcessingTask,
         prompt_engine: PromptEngine,
-        product_mapper: ProductMapper | None = None,
+        product_mapper: BaseProductMapper | None = None,
     ):
         self._db = db_object
         self._request = request
