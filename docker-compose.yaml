@@ -30,8 +30,6 @@ services:
     env_file: .env
     ports:
       - "8000:80"
-    volumes:
-      - .:/app
     environment:
       - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@db:5432/${DB_NAME:-product_assistant}
       - WEB_CONCURRENCY=1
@@ -58,8 +56,6 @@ services:
       api:
         condition: service_healthy
     env_file: .env
-    volumes:
-      - .:/app
     environment:
       - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@db:5432/${DB_NAME:-product_assistant}
       - FASTAPI_URL=http://api:80/api/update
