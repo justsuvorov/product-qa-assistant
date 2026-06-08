@@ -63,7 +63,8 @@ class TextPreprocessor(Preprocessor):
             product_info = f"Продукт: {product.name}\n\n{product.content}"
             product_id = product.id
         else:
-            product_info = "Информация о продукте не найдена в базе данных."
+            product_info = "По вопросу пользователя не удалось определить конкретный страховой продукт. Попроси пользователя уточнить название или тип продукта, который его интересует."
+
             product_id = None
 
         if context:
