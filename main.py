@@ -8,7 +8,7 @@ from fastapi import FastAPI, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from product_assistant.ai.model import QwenModel
+from product_assistant.ai.model import QwenModel, GeminiModel
 from product_assistant.ai.postprocessor import PostProcessor
 from product_assistant.ai.preprocessor import TextPreprocessor, ProcessingTask
 from product_assistant.ai.product_mapper import ProductMapper
@@ -62,7 +62,7 @@ product_mapper = ProductMapper(aliases_path=settings.product_aliases_path)
 @app.post("/api/update")
 def process_question(request: APIRequest):
     task = ProcessingTask(message_id=request.message_id, user_id=request.user_id)
-    logger.info("Запрос получен: message_id={}", request.message_id)
+    logger.info("━━━ Новый запрос: message_id={}, user_id={} ━━━", request.message_id, request.user_id)
 
     db_session = get_db_connection()
     db = DBObject(connection=db_session)
@@ -78,14 +78,16 @@ def process_question(request: APIRequest):
             product_mapper=product_mapper,
         ),
         postprocessor=PostProcessor(),
-        ai_model=QwenModel(),
+        ai_model=GeminiModel(),
         report_export=ReportExport(db_object=db, processing_task=task),
     )
 
     try:
         response = ai.result()
+        logger.info("━━━ Запрос message_id={} завершён успешно ━━━", request.message_id)
         return JSONResponse(content=jsonable_encoder(response), status_code=status.HTTP_200_OK)
     except Exception:
+        logger.error("━━━ Запрос message_id={} завершён с ошибкой:\n{} ━━━", request.message_id, traceback.format_exc())
         error = {"error": traceback.format_exc()}
         return JSONResponse(content=jsonable_encoder(error), status_code=status.HTTP_400_BAD_REQUEST)
     finally:

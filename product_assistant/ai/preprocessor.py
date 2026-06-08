@@ -1,6 +1,7 @@
 import re
 from dataclasses import dataclass
 
+from loguru import logger
 from sqlalchemy import update
 
 from product_assistant.ai.product_mapper import BaseProductMapper, ProductMapper
@@ -39,14 +40,16 @@ class TextPreprocessor(Preprocessor):
 
     def query(self) -> tuple[str, int | None]:
         question_record = self._db.get_question(self._request.message_id)
-        cleaned = _clean_text(question_record.question_text)
+        logger.info("Вопрос получен: \"{}\"", question_record.question_text[:120])
 
-        # Нормализуем алиасы/аббревиатуры → официальные названия продуктов
+        cleaned = _clean_text(question_record.question_text)
         cleaned = self._mapper.normalize(cleaned)
+        if cleaned != question_record.question_text:
+            logger.info("После нормализации: \"{}\"", cleaned[:120])
 
         context = self._db.get_context(self._request.user_id)
+        logger.info("Контекст диалога: {} сообщений (user_id={})", len(context), self._request.user_id)
 
-        # Сохраняем очищенный текст
         self._db.connection.execute(
             update(UserQuestion)
             .where(UserQuestion.id == self._request.message_id)
@@ -55,14 +58,19 @@ class TextPreprocessor(Preprocessor):
         self._db.connection.commit()
 
         products = self._db.get_all_products()
+        logger.info("Продуктов в БД: {}", len(products))
+
         product = _find_best_product(cleaned, products)
         if product is None and context:
+            logger.info("Продукт по тексту не найден — берём из контекста пользователя")
             product = self._db.get_last_product_for_user(self._request.user_id)
 
         if product:
+            logger.info("Выбран продукт: \"{}\" (id={})", product.name, product.id)
             product_info = f"Продукт: {product.name}\n\n{product.content}"
             product_id = product.id
         else:
+            logger.warning("Продукт не найден — ответ без контекста продукта")
             product_info = "Информация о продукте не найдена в базе данных."
             product_id = None
 

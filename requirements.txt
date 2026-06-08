@@ -14,3 +14,7 @@ loguru
 pymupdf
 python-docx
 python-pptx
+google-genai
+aiohttp_socks
+httpx[socks]
+socksio>=1.0.0

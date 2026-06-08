@@ -1,3 +1,5 @@
+from loguru import logger
+
 from product_assistant.ai.preprocessor import ProcessingTask
 from product_assistant.models.schema import DBObject
 
@@ -9,6 +11,7 @@ class ReportExport:
 
     def response(self, report_text: str, product_id: int | None = None) -> dict:
         message_id = self._task.message_id
+        logger.debug("ReportExport: сохранение message_id={}, product_id={}", message_id, product_id)
         try:
             self._db.update_result(
                 message_id=message_id,
@@ -16,7 +19,9 @@ class ReportExport:
                 product_id=product_id,
             )
             db_status = "saved"
+            logger.debug("ReportExport: сохранено успешно")
         except Exception as exc:
+            logger.error("ReportExport: ошибка сохранения: {}", exc)
             db_status = f"error: {exc}"
 
         return {

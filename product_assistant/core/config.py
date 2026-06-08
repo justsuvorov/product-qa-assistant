@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     qwen_model_name: str = Field("Qwen3.6-35B-A3B", alias="QWEN_MODEL_NAME")
     ai_temperature: float = Field(0.3, alias="AI_TEMPERATURE")
 
+    gemini_api_key: SecretStr = Field(..., alias="GEMINI_API_KEY")
+    model_name: str = Field("gemini-3.1-flash-lite", alias="AI_MODEL_NAME")
     # Telegram
     telegram_bot_token: SecretStr | None = Field(None, alias="TELEGRAM_BOT_TOKEN")
 

@@ -2,8 +2,7 @@ import asyncio
 import os
 import httpx
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message
-from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from sqlalchemy.orm import Session
 
 from product_assistant.core.config import settings

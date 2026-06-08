@@ -1,3 +1,5 @@
+from loguru import logger
+
 from product_assistant.ai.model import AIModel
 from product_assistant.ai.postprocessor import PostProcessor
 from product_assistant.ai.preprocessor import Preprocessor
@@ -18,7 +20,19 @@ class AIAssistantService:
         self._report_export = report_export
 
     def result(self) -> dict:
+        logger.info("[1/4] Подготовка промпта...")
         prompt, product_id = self._preprocessor.query()
+        logger.info("[1/4] Промпт готов. product_id={}, длина промпта={} симв.", product_id, len(prompt))
+
+        logger.info("[2/4] Отправка запроса в модель ({})...", self._model.__class__.__name__)
         raw_response = self._model.response(prompt)
+        logger.info("[2/4] Ответ получен. Длина={} симв.", len(raw_response))
+
+        logger.info("[3/4] Форматирование ответа...")
         formatted = self._postprocessor.report(raw_response)
-        return self._report_export.response(report_text=formatted, product_id=product_id)
+
+        logger.info("[4/4] Сохранение результата в БД...")
+        result = self._report_export.response(report_text=formatted, product_id=product_id)
+        logger.info("[4/4] Готово. db_status={}", result.get("db_status"))
+
+        return result
