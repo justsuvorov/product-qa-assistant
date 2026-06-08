@@ -53,20 +53,42 @@ class BaseScraper(ABC):
         return [self._base_url]
 
     def _sitemap_urls(self) -> list[str]:
-        """Забирает URL из sitemap.xml, фильтруя по base_url."""
-        sitemap = self._base_url + "/sitemap.xml"
-        resp = requests.get(sitemap, timeout=10, headers={"User-Agent": "ProductQABot/1.0"})
+        """Забирает URL из sitemap.xml корня домена, фильтруя по base_url."""
+        parsed_base = urlparse(self._base_url)
+        root = f"{parsed_base.scheme}://{parsed_base.netloc}"
+        base_path = parsed_base.path.rstrip("/")
+        base_netloc = parsed_base.netloc
+        return self._fetch_sitemap(root + "/sitemap.xml", base_netloc, base_path)
+
+    def _fetch_sitemap(self, sitemap_url: str, base_netloc: str, base_path: str) -> list[str]:
+        """Загружает sitemap, рекурсивно обходя sitemap index."""
+        resp = requests.get(sitemap_url, timeout=10, headers={"User-Agent": "ProductQABot/1.0"})
         resp.raise_for_status()
 
         soup = BeautifulSoup(resp.text, "xml")
-        base_path = urlparse(self._base_url).path.rstrip("/")
-        base_netloc = urlparse(self._base_url).netloc
 
+        # Sitemap index — рекурсивно обходим вложенные карты
+        nested = soup.find_all("sitemap")
+        if nested:
+            urls = []
+            for entry in nested:
+                loc = entry.find("loc")
+                if not loc:
+                    continue
+                try:
+                    urls.extend(self._fetch_sitemap(loc.get_text(strip=True), base_netloc, base_path))
+                except Exception as exc:
+                    logger.warning("Не удалось получить вложенный sitemap {}: {}", loc.get_text(strip=True), exc)
+            return urls
+
+        # Обычный sitemap — фильтруем по base_path
+        # Сравниваем netloc без www. (sitemap может использовать другой вариант)
+        norm_base = base_netloc.removeprefix("www.")
         urls = []
         for loc in soup.find_all("loc"):
             url = loc.get_text(strip=True)
             parsed = urlparse(url)
-            if parsed.netloc == base_netloc and parsed.path.startswith(base_path):
+            if parsed.netloc.removeprefix("www.") == norm_base and parsed.path.startswith(base_path):
                 urls.append(url)
         return urls
 
