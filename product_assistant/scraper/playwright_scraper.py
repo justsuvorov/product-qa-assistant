@@ -38,16 +38,20 @@ class PlaywrightScraper(BaseScraper):
             )
             return []
 
-        urls = self._resolve_product_urls()
-        results = []
-
         proxy_url = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
         proxy = {"server": proxy_url} if proxy_url else None
+        results = []
 
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True, proxy=proxy)
             ctx = browser.new_context(locale="ru-RU")
             page = ctx.new_page()
+
+            # Если пути заданы явно — берём их; иначе обнаруживаем с базовой страницы
+            if self._product_paths:
+                urls = self._resolve_product_urls()
+            else:
+                urls = self._discover_urls(page)
 
             for url in urls:
                 try:
@@ -62,6 +66,59 @@ class PlaywrightScraper(BaseScraper):
 
         logger.info("Итого спарсено (playwright): {}", len(results))
         return results
+
+    def _discover_urls(self, page) -> list[str]:
+        """
+        Открывает base_url и собирает ссылки на дочерние страницы.
+        Если ссылок нет — возвращает [base_url] для парсинга самой страницы.
+        """
+        logger.info("PRODUCT_PATHS не задан — обнаруживаем продукты с {}", self._base_url)
+
+        try:
+            page.goto(self._base_url, wait_until="load", timeout=self._timeout * 1000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=8_000)
+            except Exception:
+                pass
+
+            base_parsed = urlparse(self._base_url)
+            base_path = base_parsed.path.rstrip("/")
+
+            child_urls = page.evaluate("""
+                (basePath) => {
+                    const seen = new Set();
+                    return Array.from(document.querySelectorAll('a[href]'))
+                        .map(a => {
+                            try { return new URL(a.href).href; }
+                            catch { return null; }
+                        })
+                        .filter(href => {
+                            if (!href) return false;
+                            try {
+                                const u = new URL(href);
+                                const path = u.pathname.replace(/\\/$/, '');
+                                // дочерняя страница: путь начинается с base_path и длиннее
+                                if (!path.startsWith(basePath) || path === basePath) return false;
+                                // только один уровень вложенности глубже
+                                const extra = path.slice(basePath.length);
+                                if (extra.split('/').filter(Boolean).length !== 1) return false;
+                                if (seen.has(path)) return false;
+                                seen.add(path);
+                                return true;
+                            } catch { return false; }
+                        });
+                }
+            """, base_path)
+
+            if child_urls:
+                logger.info("Обнаружено {} продуктов на {}", len(child_urls), self._base_url)
+                return child_urls
+
+        except Exception as exc:
+            logger.warning("Ошибка при обнаружении URL с {}: {}", self._base_url, exc)
+
+        logger.info("Дочерних ссылок не найдено — парсим базовый URL")
+        return [self._base_url]
 
     def _parse_page(self, page, url: str) -> dict | None:
         page.goto(url, wait_until="load", timeout=self._timeout * 1000)

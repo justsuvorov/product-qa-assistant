@@ -2,6 +2,7 @@ import asyncio
 import os
 import httpx
 from aiogram import Bot, Dispatcher, F
+from aiogram.filters import CommandStart
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from sqlalchemy.orm import Session
 
@@ -22,6 +23,18 @@ def _main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=_BTN_CLEAR)]],
         resize_keyboard=True,
+    )
+
+
+@dp.message(CommandStart())
+async def handle_start(message: Message):
+    await message.answer(
+        "Привет! Я помогу ответить на вопросы по страховым продуктам ВСК.\n\n"
+        "Задайте вопрос — например:\n"
+        "• Что покрывает КАСКО Классика?\n"
+        "• Входит ли эвакуация в КАСКО?\n"
+        "• Какие документы нужны для ОСАГО?",
+        reply_markup=_main_keyboard(),
     )
 
 
