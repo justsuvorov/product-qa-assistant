@@ -74,6 +74,8 @@ async def handle_text(message: Message):
 
         if response.status_code == 200:
             result = response.json()
+            if result.get("context_cleared"):
+                await message.answer("🔄 Вопрос про новый продукт. Контекст очищен.")
             answer = result.get("payload", {}).get("text", "Ответ не получен")
             await message.answer(f"✅ {answer}", parse_mode="MarkdownV2", reply_markup=_main_keyboard())
         else:

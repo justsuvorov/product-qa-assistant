@@ -6,7 +6,7 @@ from product_assistant.services.assistant import AIAssistantService
 @pytest.fixture
 def service():
     preprocessor = MagicMock()
-    preprocessor.query.return_value = ("промпт для модели", 5)
+    preprocessor.query.return_value = ("промпт для модели", 5, False)
 
     postprocessor = MagicMock()
     postprocessor.report.return_value = "Отформатированный ответ"
@@ -48,7 +48,7 @@ def test_result_returns_export_dict(service):
 
 
 def test_result_passes_product_id_to_export(service):
-    service._preprocessor.query.return_value = ("промпт", 99)
+    service._preprocessor.query.return_value = ("промпт", 99, False)
     service.result()
     service._report_export.response.assert_called_once_with(
         report_text="Отформатированный ответ", product_id=99

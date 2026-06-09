@@ -87,7 +87,7 @@ def test_text_preprocessor_query_returns_prompt_and_product_id():
     task = ProcessingTask(message_id=1, user_id=1)
     preprocessor = TextPreprocessor(db_object=db, request=task, prompt_engine=engine)
 
-    prompt, product_id = preprocessor.query()
+    prompt, product_id, context_cleared = preprocessor.query()
 
     assert isinstance(prompt, str)
     assert product_id == 3
@@ -110,5 +110,6 @@ def test_text_preprocessor_query_no_product_returns_none_id():
     task = ProcessingTask(message_id=1, user_id=1)
     preprocessor = TextPreprocessor(db_object=db, request=task, prompt_engine=engine)
 
-    _, product_id = preprocessor.query()
+    _, product_id, context_cleared = preprocessor.query()
     assert product_id is None
+    assert context_cleared is False

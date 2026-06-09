@@ -38,9 +38,20 @@ class TextPreprocessor(Preprocessor):
         self._prompt_engine = prompt_engine
         self._mapper = product_mapper or ProductMapper()
 
-    def query(self) -> tuple[str, int | None]:
+    def query(self) -> tuple[str, int | None, bool]:
+        """Возвращает (prompt_or_direct_answer, product_id, context_cleared)."""
         question_record = self._db.get_question(self._request.message_id)
         logger.info("Вопрос получен: \"{}\"", question_record.question_text[:120])
+
+        if _is_product_list_request(question_record.question_text):
+            logger.info("Запрос на список продуктов — возвращаем без LLM")
+            products = self._db.get_all_products()
+            if products:
+                lines = "\n".join(f"• {p.name}" for p in products)
+                answer = f"Я знаю следующие страховые продукты:\n\n{lines}\n\nЗадайте вопрос по любому из них."
+            else:
+                answer = "Информация о продуктах ещё не загружена. Попробуйте позже."
+            return _DIRECT_ANSWER_PREFIX + answer, None, False
 
         cleaned = _clean_text(question_record.question_text)
         cleaned = self._mapper.normalize(cleaned)
@@ -61,6 +72,20 @@ class TextPreprocessor(Preprocessor):
         logger.info("Продуктов в БД: {}", len(products))
 
         product = _find_best_product(cleaned, products)
+
+        # Проверяем смену продукта: если в вопросе явно найден другой продукт чем в контексте
+        context_cleared = False
+        if product is not None and self._request.user_id is not None:
+            context_product = self._db.get_last_product_for_user(self._request.user_id)
+            if context_product is not None and context_product.id != product.id:
+                logger.info(
+                    "Смена продукта: \"{}\" → \"{}\", контекст очищен",
+                    context_product.name, product.name,
+                )
+                self._db.clear_user_context(self._request.user_id)
+                context = []
+                context_cleared = True
+
         if product is None and context:
             logger.info("Продукт по тексту не найден — берём из контекста пользователя")
             product = self._db.get_last_product_for_user(self._request.user_id)
@@ -79,7 +104,21 @@ class TextPreprocessor(Preprocessor):
         else:
             prompt = self._prompt_engine.build(question=cleaned, product_info=product_info)
 
-        return prompt, product_id
+        return prompt, product_id, context_cleared
+
+
+_DIRECT_ANSWER_PREFIX = "\x00DIRECT\x00"
+
+_LIST_KEYWORDS = (
+    "какие продукты", "какие программы", "что знаешь", "что умеешь",
+    "список продуктов", "список программ", "какие страховки",
+    "что можешь", "помощь", "доступные продукты", "доступные программы",
+)
+
+
+def _is_product_list_request(text: str) -> bool:
+    lower = text.lower()
+    return any(kw in lower for kw in _LIST_KEYWORDS)
 
 
 def _clean_text(text: str) -> str:
