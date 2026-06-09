@@ -78,7 +78,7 @@ def process_question(request: APIRequest):
             product_mapper=product_mapper,
         ),
         postprocessor=PostProcessor(),
-        ai_model=GeminiModel(),
+        ai_model=QwenModel(),
         report_export=ReportExport(db_object=db, processing_task=task),
     )
 
