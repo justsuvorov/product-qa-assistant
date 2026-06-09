@@ -56,13 +56,13 @@ async def handle_text(message: Message):
     db_session: Session = get_db_connection()
     db = DBObject(connection=db_session)
 
+    status_deleted = False
     try:
         question = db.save_question(
             question_text=message.text,
             user_id=message.from_user.id if message.from_user else None,
         )
 
-        # Отправляем в FastAPI для обработки
         async with httpx.AsyncClient(timeout=120.0) as client:
             payload = {
                 "message_id": question.id,
@@ -71,6 +71,7 @@ async def handle_text(message: Message):
             response = await client.post(FASTAPI_URL, json=payload)
 
         await status_msg.delete()
+        status_deleted = True
 
         if response.status_code == 200:
             result = response.json()
@@ -85,7 +86,8 @@ async def handle_text(message: Message):
             )
 
     except Exception as exc:
-        await status_msg.delete()
+        if not status_deleted:
+            await status_msg.delete()
         await message.answer(f"💥 Произошла ошибка: {exc}", reply_markup=_main_keyboard())
     finally:
         db_session.close()

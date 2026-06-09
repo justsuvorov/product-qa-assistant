@@ -24,8 +24,9 @@ class AIAssistantService:
         prompt, product_id, context_cleared = self._preprocessor.query()
 
         if prompt.startswith(_DIRECT_ANSWER_PREFIX):
-            # Прямой ответ без LLM (например, список продуктов)
-            formatted = prompt[len(_DIRECT_ANSWER_PREFIX):]
+            # Прямой ответ без LLM — всё равно прогоняем через постпроцессор для MarkdownV2
+            raw = prompt[len(_DIRECT_ANSWER_PREFIX):]
+            formatted = self._postprocessor.report(raw)
             logger.info("[2-3/4] Прямой ответ без LLM. Длина={} симв.", len(formatted))
         else:
             logger.info("[1/4] Промпт готов. product_id={}, длина промпта={} симв.", product_id, len(prompt))
