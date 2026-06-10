@@ -140,7 +140,11 @@ class QwenModel(ServiceLLMModel):
     def _call_api(self, query: str) -> str:
         resp = self._client.post(
             self._api_url,
-            json={"model": self._model_name, "prompt": query},
+            json={
+                "model": self._model_name,
+                "prompt": query,
+                "max_tokens": settings.qwen_max_tokens,
+            },
         )
         resp.raise_for_status()
         data = resp.json()

@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     # AI — Qwen через внутренний OpenAI-compatible API
     qwen_api_url: str = Field("", alias="QWEN_API_URL")
     qwen_model_name: str = Field("Qwen3.6-35B-A3B", alias="QWEN_MODEL_NAME")
+    qwen_max_tokens: int = Field(100000, alias="QWEN_MAX_TOKENS")
     ai_temperature: float = Field(0.3, alias="AI_TEMPERATURE")
 
     gemini_api_key: SecretStr = Field(..., alias="GEMINI_API_KEY")
