@@ -109,16 +109,18 @@ class TextPreprocessor(Preprocessor):
 
 _DIRECT_ANSWER_PREFIX = "\x00DIRECT\x00"
 
-_LIST_KEYWORDS = (
-    "какие продукты", "какие программы", "что знаешь", "что умеешь",
-    "список продуктов", "список программ", "какие страховки",
-    "что можешь", "помощь", "доступные продукты", "доступные программы",
+_LIST_REQUEST_PATTERN = re.compile(
+    r"(что|чем)\s+(ты\s+)?(умеешь|можешь|знаешь)"
+    r"|какие\s+(есть\s+)?(продукт|программ|страховк|полис)"
+    r"|(список|перечень)\s+(продукт|программ|страховк|полис)"
+    r"|доступные\s+(продукт|программ|страховк)"
+    r"|(помощь|помоги|помогите|справка)",
+    re.IGNORECASE,
 )
 
 
 def _is_product_list_request(text: str) -> bool:
-    lower = text.lower()
-    return any(kw in lower for kw in _LIST_KEYWORDS)
+    return bool(_LIST_REQUEST_PATTERN.search(text))
 
 
 def _clean_text(text: str) -> str:
