@@ -4,13 +4,13 @@ from contextlib import asynccontextmanager
 
 from loguru import logger
 
-from fastapi import FastAPI, status
+from fastapi import FastAPI, Query, status
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from product_assistant.ai.model import QwenModel, GeminiModel
 from product_assistant.ai.postprocessor import PostProcessor
-from product_assistant.ai.preprocessor import TextPreprocessor, ProcessingTask
+from product_assistant.ai.preprocessor import TextPreprocessor, ProcessingTask, _clean_text, _find_best_product
 from product_assistant.ai.product_mapper import ProductMapper
 from product_assistant.ai.promt_builders import PromptEngine
 from product_assistant.core.config import settings
@@ -90,5 +90,64 @@ def process_question(request: APIRequest):
         logger.error("━━━ Запрос message_id={} завершён с ошибкой:\n{} ━━━", request.message_id, traceback.format_exc())
         error = {"error": traceback.format_exc()}
         return JSONResponse(content=jsonable_encoder(error), status_code=status.HTTP_400_BAD_REQUEST)
+    finally:
+        db_session.close()
+
+
+@app.get("/api/debug/prompt")
+def debug_prompt(q: str = Query(..., description="Вопрос для отладки")):
+    """Строит промпт для LLM по вопросу и возвращает markdown."""
+    from datetime import datetime
+
+    db_session = get_db_connection()
+    db = DBObject(connection=db_session)
+
+    try:
+        cleaned = _clean_text(q)
+        normalized = product_mapper.normalize(cleaned)
+        products = db.get_all_products()
+        product = _find_best_product(normalized, products)
+
+        if product:
+            product_info = f"Продукт: {product.name}\n\n{product.content}"
+            product_id = product.id
+            product_name = product.name
+        else:
+            product_info = "Информация о продукте не найдена в базе данных."
+            product_id = None
+            product_name = None
+
+        engine = PromptEngine(role=settings.ai_role, template=settings.ai_prompt_template)
+        prompt = engine.build(question=normalized, product_info=product_info)
+
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        md = f"""# Debug Prompt — {ts}
+
+## Вопрос
+```
+{q}
+```
+
+## После нормализации
+```
+{normalized}
+```
+
+## Метаданные
+| Поле | Значение |
+|------|---------|
+| product_id | {product_id} |
+| product_name | {product_name} |
+| Продуктов в БД | {len(products)} |
+| Длина промпта | {len(prompt)} символов |
+
+## Полный промпт для LLM
+
+```
+{prompt}
+```
+"""
+        return PlainTextResponse(content=md, media_type="text/markdown; charset=utf-8")
+
     finally:
         db_session.close()
