@@ -79,17 +79,19 @@ def find_document_links(page, page_url: str) -> list[dict]:
     return results
 
 
-def extract_document_text(doc_url: str, timeout: int = 30) -> str | None:
+def extract_document_text(doc_url: str, timeout: int = 30,
+                          cookies: dict | None = None) -> str | None:
     """
     Скачивает документ и возвращает извлечённый текст.
     Поддерживает PDF, DOCX, PPTX.
+    cookies — куки сессии для авторизованных сайтов.
     """
     ext = _get_extension(doc_url)
     if ext not in SUPPORTED_EXTENSIONS:
         logger.warning("Неподдерживаемый тип документа: {}", doc_url)
         return None
 
-    content = _download(doc_url, timeout)
+    content = _download(doc_url, timeout, cookies=cookies)
     if content is None:
         return None
 
@@ -113,13 +115,15 @@ def _get_extension(url: str) -> str:
     return ""
 
 
-def _download(url: str, timeout: int) -> bytes | None:
+def _download(url: str, timeout: int, cookies: dict | None = None) -> bytes | None:
     proxy_url = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
     try:
         with httpx.Client(
             proxy=proxy_url,
             timeout=timeout,
+            verify=False,
             headers={"User-Agent": "Mozilla/5.0 (compatible; ProductQABot/1.0)"},
+            cookies=cookies or {},
             follow_redirects=True,
         ) as client:
             response = client.get(url)

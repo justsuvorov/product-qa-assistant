@@ -48,6 +48,8 @@ class SeleniumScraper(BaseScraper):
         options.add_argument("--ignore-ssl-errors")
         options.add_argument("--allow-insecure-localhost")
         options.set_capability("acceptInsecureCerts", True)
+        # Не ждём полной загрузки — используем явные ожидания элементов
+        options.page_load_strategy = "none"
 
         if self._selenium_url:
             driver = webdriver.Remote(
@@ -57,7 +59,7 @@ class SeleniumScraper(BaseScraper):
         else:
             driver = webdriver.Chrome(options=options)
 
-        driver.set_page_load_timeout(self._timeout)
+        driver.set_page_load_timeout(self._timeout * 4)
         return driver
 
     def scrape_all(self) -> list[dict]:
@@ -67,10 +69,13 @@ class SeleniumScraper(BaseScraper):
 
         driver = self._create_driver()
         results = []
+        session_cookies: dict = {}
 
         try:
             if self._username and self._password:
                 self._login(driver)
+                session_cookies = {c["name"]: c["value"] for c in driver.get_cookies()}
+                logger.info("Получено {} куки сессии", len(session_cookies))
 
             if self._product_paths:
                 urls = self._resolve_product_urls()
@@ -79,7 +84,7 @@ class SeleniumScraper(BaseScraper):
 
             for url in urls:
                 try:
-                    data = self._parse_page(driver, url)
+                    data = self._parse_page(driver, url, session_cookies=session_cookies)
                     if data:
                         results.append(data)
                         logger.info("Спарсен продукт: {}", data["name"])
@@ -93,19 +98,24 @@ class SeleniumScraper(BaseScraper):
         return results
 
     def _wait_for_page(self, driver):
-        """Ждёт стабилизации страницы — JS перестаёт менять DOM."""
+        """Ждёт появления body и стабилизации DOM."""
         from selenium.webdriver.support.ui import WebDriverWait
-        from selenium.webdriver.support import expected_conditions as EC
-        from selenium.webdriver.common.by import By
+        from selenium.webdriver.by import By
 
         try:
             WebDriverWait(driver, self._timeout).until(
-                lambda d: d.execute_script("return document.readyState") == "complete"
+                lambda d: d.execute_script("return document.body !== null")
             )
         except Exception:
             pass
 
-        # Дополнительная пауза для SPA-роутера
+        try:
+            WebDriverWait(driver, self._timeout).until(
+                lambda d: d.execute_script("return document.readyState") in ("interactive", "complete")
+            )
+        except Exception:
+            pass
+
         time.sleep(2)
 
     def _login(self, driver):
@@ -204,7 +214,7 @@ class SeleniumScraper(BaseScraper):
         logger.info("Дочерних ссылок не найдено — парсим базовый URL")
         return [self._base_url]
 
-    def _parse_page(self, driver, url: str) -> dict | None:
+    def _parse_page(self, driver, url: str, session_cookies: dict | None = None) -> dict | None:
         driver.get(url)
         self._wait_for_page(driver)
 
@@ -256,7 +266,7 @@ class SeleniumScraper(BaseScraper):
         # Документы
         for doc in doc_links:
             logger.info("Обрабатываю {}: {}", doc["ext"].upper(), doc["url"])
-            doc_text = extract_document_text(doc["url"], timeout=self._timeout)
+            doc_text = extract_document_text(doc["url"], timeout=self._timeout, cookies=session_cookies)
             if doc_text:
                 sections.append(f"--- Документ [{doc['ext'].upper()}]: {doc['title']} ---\n{doc_text}")
 
