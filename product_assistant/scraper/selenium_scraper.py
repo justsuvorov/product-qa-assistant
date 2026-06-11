@@ -44,6 +44,10 @@ class SeleniumScraper(BaseScraper):
         options.add_argument("--disable-gpu")
         options.add_argument("--lang=ru-RU")
         options.add_argument("--window-size=1920,1080")
+        options.add_argument("--ignore-certificate-errors")
+        options.add_argument("--ignore-ssl-errors")
+        options.add_argument("--allow-insecure-localhost")
+        options.set_capability("acceptInsecureCerts", True)
 
         if self._selenium_url:
             driver = webdriver.Remote(
