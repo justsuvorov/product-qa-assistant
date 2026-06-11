@@ -144,6 +144,7 @@ class QwenModel(ServiceLLMModel):
                 "model": self._model_name,
                 "prompt": query,
                 "max_tokens": settings.qwen_max_tokens,
+                "enable_thinking": False,
             },
         )
         resp.raise_for_status()

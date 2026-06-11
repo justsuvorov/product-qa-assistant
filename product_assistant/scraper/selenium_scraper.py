@@ -217,12 +217,13 @@ class SeleniumScraper(BaseScraper):
         driver.get(url)
         self._wait_for_page(driver)
 
-        # Ждём появления h1
+        # Ждём появления h1 — увеличен таймаут для медленных SPA
         try:
             from selenium.webdriver.support.ui import WebDriverWait
             from selenium.webdriver.common.by import By
-            WebDriverWait(driver, 10).until(
+            WebDriverWait(driver, self._timeout).until(
                 lambda d: d.find_elements(By.TAG_NAME, "h1")
+                          and d.find_elements(By.TAG_NAME, "h1")[0].text.strip()
             )
         except Exception:
             pass
@@ -232,9 +233,11 @@ class SeleniumScraper(BaseScraper):
 
         h1 = soup.find("h1")
         name = h1.get_text(strip=True) if h1 else urlparse(url).path.strip("/").split("/")[-1]
+        logger.info("Название продукта: '{}' (URL: {})", name, url)
 
         # Документы из HTML (без JS-контекста)
         doc_links = find_document_links_from_html(soup, url)
+        logger.info("Найдено документов на {}: {}", url, len(doc_links))
 
         # Вкладки — ссылки с тем же pathname, другим query
         tab_links = self._find_tab_links(driver, url)
