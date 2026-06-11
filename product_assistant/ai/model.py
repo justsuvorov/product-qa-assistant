@@ -135,7 +135,7 @@ class QwenModel(ServiceLLMModel):
     def __init__(self):
         self._api_url = settings.qwen_api_url
         self._model_name = settings.qwen_model_name
-        self._client = httpx.Client(timeout=120)
+        self._client = httpx.Client(timeout=120, verify=False)
 
     def _call_api(self, query: str) -> str:
         resp = self._client.post(

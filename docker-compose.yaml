@@ -19,6 +19,19 @@ services:
       timeout: 5s
       retries: 5
 
+  selenium:
+    image: selenium/standalone-chrome:latest
+    container_name: product_qa_selenium
+    restart: always
+    shm_size: 2gb
+    ports:
+      - "4444:4444"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4444/wd/hub/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: .
@@ -26,6 +39,8 @@ services:
     restart: always
     depends_on:
       db:
+        condition: service_healthy
+      selenium:
         condition: service_healthy
     env_file: .env
     ports:
@@ -38,6 +53,7 @@ services:
       - PRODUCT_PATHS=${PRODUCT_PATHS:-}
       - QWEN_API_URL=${QWEN_API_URL}
       - QWEN_MODEL_NAME=${QWEN_MODEL_NAME:-Qwen3.6-35B-A3B}
+      - SELENIUM_URL=${SELENIUM_URL:-http://selenium:4444}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/docs"]
       interval: 30s

@@ -34,6 +34,27 @@ except ImportError:
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx"}
 
 
+def find_document_links_from_html(soup, page_url: str) -> list[dict]:
+    """
+    Находит ссылки на документы из BeautifulSoup-объекта (без JS).
+    Используется в SeleniumScraper и других не-Playwright парсерах.
+    """
+    from urllib.parse import urljoin
+
+    results = []
+    seen = set()
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        url = urljoin(page_url, href)
+        ext = _get_extension(url)
+        if ext not in SUPPORTED_EXTENSIONS or url in seen:
+            continue
+        seen.add(url)
+        title = a.get_text(strip=True) or url
+        results.append({"url": url, "title": title, "ext": ext})
+    return results
+
+
 def find_document_links(page, page_url: str) -> list[dict]:
     """
     Находит ссылки на документы через Playwright JS-evaluate.

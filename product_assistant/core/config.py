@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # Путь до JSON-файла со словарём алиасов продуктов
     product_aliases_path: str = Field("product_aliases.json", alias="PRODUCT_ALIASES_PATH")
 
+    # Selenium Grid URL (если пусто — используется локальный Chrome)
+    selenium_url: str = Field("", alias="SELENIUM_URL")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
