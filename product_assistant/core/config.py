@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # Selenium Grid URL (если пусто — используется локальный Chrome)
     selenium_url: str = Field("", alias="SELENIUM_URL")
 
+    # Авторизация на сайте продуктов (Keycloak)
+    scraper_username: str = Field("", alias="SCRAPER_USERNAME")
+    scraper_password: str = Field("", alias="SCRAPER_PASSWORD")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -30,6 +30,8 @@ def _run_scraping():
         base_url=settings.products_website_url,
         product_paths=paths,
         selenium_url=settings.selenium_url,
+        username=settings.scraper_username,
+        password=settings.scraper_password,
     )
     products = scraper.scrape_all()
 

@@ -22,10 +22,9 @@ services:
   selenium:
     image: selenium/standalone-chrome:latest
     container_name: product_qa_selenium
+    network_mode: host
     restart: always
     shm_size: 2gb
-    ports:
-      - "4444:4444"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4444/wd/hub/status"]
       interval: 10s
@@ -49,11 +48,11 @@ services:
       - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@db:5432/${DB_NAME:-product_assistant}
       - WEB_CONCURRENCY=1
       - PRODUCTS_WEBSITE_URL=${PRODUCTS_WEBSITE_URL}
-      - SCRAPER_TYPE=${SCRAPER_TYPE:-playwright}
+      - SCRAPER_TYPE=${SCRAPER_TYPE:-selenium}
       - PRODUCT_PATHS=${PRODUCT_PATHS:-}
       - QWEN_API_URL=${QWEN_API_URL}
       - QWEN_MODEL_NAME=${QWEN_MODEL_NAME:-Qwen3.6-35B-A3B}
-      - SELENIUM_URL=${SELENIUM_URL:-http://selenium:4444}
+      - SELENIUM_URL=${SELENIUM_URL}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/docs"]
       interval: 30s
@@ -66,6 +65,7 @@ services:
       context: .
     container_name: product_qa_bot
     restart: always
+    network_mode: host
     depends_on:
       db:
         condition: service_healthy
@@ -73,8 +73,8 @@ services:
         condition: service_healthy
     env_file: .env
     environment:
-      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@db:5432/${DB_NAME:-product_assistant}
-      - FASTAPI_URL=http://api:80/api/update
+      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@127.0.0.1:5432/${DB_NAME:-product_assistant}
+      - FASTAPI_URL=http://127.0.0.1:8000/api/update
     entrypoint: ["python", "bot_main.py"]
 
 volumes:

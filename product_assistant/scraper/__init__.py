@@ -11,6 +11,8 @@ def create_scraper(
     product_paths: list[str] | None = None,
     timeout: int = 30,
     selenium_url: str = "",
+    username: str = "",
+    password: str = "",
 ) -> BaseScraper:
     """
     Фабрика парсеров.
@@ -30,6 +32,8 @@ def create_scraper(
             product_paths=product_paths,
             timeout=timeout,
             selenium_url=selenium_url,
+            username=username,
+            password=password,
         )
 
     scrapers = {
