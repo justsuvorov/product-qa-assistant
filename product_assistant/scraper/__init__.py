@@ -3,6 +3,7 @@ from product_assistant.scraper.detector import detect_scraper_type
 from product_assistant.scraper.requests_scraper import RequestsScraper
 from product_assistant.scraper.playwright_scraper import PlaywrightScraper
 from product_assistant.scraper.selenium_scraper import SeleniumScraper
+from product_assistant.scraper.local_files_scraper import LocalFilesScraper
 
 
 def create_scraper(
@@ -13,6 +14,7 @@ def create_scraper(
     selenium_url: str = "",
     username: str = "",
     password: str = "",
+    local_files_dir: str = "",
 ) -> BaseScraper:
     """
     Фабрика парсеров.
@@ -25,6 +27,9 @@ def create_scraper(
     """
     if scraper_type == "auto":
         scraper_type = detect_scraper_type(base_url)
+
+    if scraper_type == "local_files":
+        return LocalFilesScraper(local_files_dir=local_files_dir)
 
     if scraper_type == "selenium":
         return SeleniumScraper(

@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     scraper_username: str = Field("", alias="SCRAPER_USERNAME")
     scraper_password: str = Field("", alias="SCRAPER_PASSWORD")
 
+    # Директория с локальными документами (для SCRAPER_TYPE=local_files)
+    local_files_dir: str = Field("", alias="LOCAL_FILES_DIR")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
