@@ -100,7 +100,6 @@ class SeleniumScraper(BaseScraper):
     def _wait_for_page(self, driver):
         """Ждёт появления body и стабилизации DOM."""
         from selenium.webdriver.support.ui import WebDriverWait
-        from selenium.webdriver.by import By
 
         try:
             WebDriverWait(driver, self._timeout).until(
@@ -221,7 +220,7 @@ class SeleniumScraper(BaseScraper):
         # Ждём появления h1
         try:
             from selenium.webdriver.support.ui import WebDriverWait
-            from selenium.webdriver.by import By
+            from selenium.webdriver.common.by import By
             WebDriverWait(driver, 10).until(
                 lambda d: d.find_elements(By.TAG_NAME, "h1")
             )
