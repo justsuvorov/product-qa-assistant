@@ -235,8 +235,8 @@ class SeleniumScraper(BaseScraper):
         name = h1.get_text(strip=True) if h1 else urlparse(url).path.strip("/").split("/")[-1]
         logger.info("Название продукта: '{}' (URL: {})", name, url)
 
-        # Документы из HTML (без JS-контекста)
-        doc_links = find_document_links_from_html(soup, url)
+        # Документы — из живого DOM через JS (видит динамически добавленные ссылки)
+        doc_links = self._find_doc_links_from_dom(driver)
         logger.info("Найдено документов на {}: {}", url, len(doc_links))
 
         # Вкладки — ссылки с тем же pathname, другим query
@@ -283,6 +283,34 @@ class SeleniumScraper(BaseScraper):
             return None
 
         return {"name": name, "url": url, "content": full_content}
+
+    def _find_doc_links_from_dom(self, driver) -> list[dict]:
+        """Ищет ссылки на документы через JS в живом DOM браузера."""
+        from product_assistant.scraper.document_parser import SUPPORTED_EXTENSIONS
+        try:
+            exts = "|".join(e.lstrip(".") for e in SUPPORTED_EXTENSIONS)
+            raw = driver.execute_script(f"""
+                return Array.from(document.querySelectorAll('a[href]'))
+                    .map(a => ({{url: a.href, title: (a.textContent || a.href).trim()}}))
+                    .filter(l => {{
+                        try {{
+                            var path = new URL(l.url).pathname.toLowerCase();
+                            return /\\.({exts})$/.test(path);
+                        }} catch(e) {{ return false; }}
+                    }});
+            """)
+            seen = set()
+            result = []
+            for item in (raw or []):
+                url = item.get("url", "")
+                if url and url not in seen:
+                    seen.add(url)
+                    ext = "." + url.rsplit(".", 1)[-1].lower().split("?")[0]
+                    result.append({"url": url, "title": item.get("title") or url, "ext": ext})
+            return result
+        except Exception as exc:
+            logger.warning("Ошибка при поиске документов через DOM: {}", exc)
+            return []
 
     def _find_tab_links(self, driver, current_url: str) -> list[dict]:
         """Ищет ссылки с тем же pathname, но другими query-параметрами."""
