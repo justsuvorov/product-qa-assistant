@@ -33,25 +33,31 @@ class TextPreprocessor(Preprocessor):
         prompt_engine: PromptEngine,
         product_mapper: BaseProductMapper | None = None,
     ):
+        from product_assistant.core.config import settings
+
         self._db = db_object
         self._request = request
         self._prompt_engine = prompt_engine
         self._mapper = product_mapper or ProductMapper()
+        self._list_request_role = settings.ai_list_request_role
 
     def query(self) -> tuple[str, int | None, bool]:
         """Возвращает (prompt_or_direct_answer, product_id, context_cleared)."""
         question_record = self._db.get_question(self._request.message_id)
         logger.info("Вопрос получен: \"{}\"", question_record.question_text[:120])
 
-        if _is_product_list_request(question_record.question_text):
-            logger.info("Запрос на список продуктов — возвращаем без LLM")
+        # Проверяем если это запрос на список продуктов
+        is_list_request = _is_product_list_request(question_record.question_text)
+        if is_list_request:
+            logger.info("Запрос на список продуктов/возможностей — обрабатываем через LLM")
             products = self._db.get_all_products()
             if products:
-                lines = "\n".join(f"• {p.name}" for p in products)
-                answer = f"Я знаю следующие страховые продукты:\n\n{lines}\n\nЗадайте вопрос по любому из них."
+                product_list = "\n".join(f"• {p.name}" for p in products)
+                product_info = f"Доступные страховые продукты:\n\n{product_list}"
             else:
-                answer = "Информация о продуктах ещё не загружена. Попробуйте позже."
-            return _DIRECT_ANSWER_PREFIX + answer, None, False
+                product_info = "Информация о продуктах ещё не загружена."
+        else:
+            product_info = None
 
         cleaned = _clean_text(question_record.question_text)
         cleaned = self._mapper.normalize(cleaned)
@@ -71,38 +77,49 @@ class TextPreprocessor(Preprocessor):
         products = self._db.get_all_products()
         logger.info("Продуктов в БД: {}", len(products))
 
-        product = _find_best_product(cleaned, products)
-
-        # Проверяем смену продукта: если в вопросе явно найден другой продукт чем в контексте
         context_cleared = False
-        if product is not None and self._request.user_id is not None:
-            context_product = self._db.get_last_product_for_user(self._request.user_id)
-            if context_product is not None and context_product.id != product.id:
-                logger.info(
-                    "Смена продукта: \"{}\" → \"{}\", контекст очищен",
-                    context_product.name, product.name,
-                )
-                self._db.clear_user_context(self._request.user_id)
-                context = []
-                context_cleared = True
+        product_id = None
 
-        if product is None and context:
-            logger.info("Продукт по тексту не найден — берём из контекста пользователя")
-            product = self._db.get_last_product_for_user(self._request.user_id)
-
-        if product:
-            logger.info("Выбран продукт: \"{}\" (id={})", product.name, product.id)
-            product_info = f"Продукт: {product.name}\n\n{product.content}"
-            product_id = product.id
+        # Если это запрос на список продуктов — используем специальный product_info
+        if is_list_request:
+            logger.info("Используем список продуктов как контекст для LLM")
+            product = None
         else:
-            logger.warning("Продукт не найден — ответ без контекста продукта")
-            product_info = "Информация о продукте не найдена в базе данных."
-            product_id = None
+            product = _find_best_product(cleaned, products)
 
-        if context:
-            prompt = self._prompt_engine.build(question=cleaned, product_info=product_info, context=context)
+            # Проверяем смену продукта: если в вопросе явно найден другой продукт чем в контексте
+            if product is not None and self._request.user_id is not None:
+                context_product = self._db.get_last_product_for_user(self._request.user_id)
+                if context_product is not None and context_product.id != product.id:
+                    logger.info(
+                        "Смена продукта: \"{}\" → \"{}\", контекст очищен",
+                        context_product.name, product.name,
+                    )
+                    self._db.clear_user_context(self._request.user_id)
+                    context = []
+                    context_cleared = True
+
+            if product is None and context:
+                logger.info("Продукт по тексту не найден — берём из контекста пользователя")
+                product = self._db.get_last_product_for_user(self._request.user_id)
+
+            if product:
+                logger.info("Выбран продукт: \"{}\" (id={})", product.name, product.id)
+                product_info = f"Продукт: {product.name}\n\n{product.content}"
+                product_id = product.id
+            else:
+                logger.warning("Продукт не найден — ответ без контекста продукта")
+                product_info = "Информация о продукте не найдена в базе данных."
+
+        # Для запроса на список продуктов используем специальный role
+        if is_list_request:
+            list_engine = PromptEngine(role=self._list_request_role, template=self._prompt_engine._template)
+            prompt = list_engine.build(question=cleaned, product_info=product_info)
         else:
-            prompt = self._prompt_engine.build(question=cleaned, product_info=product_info)
+            if context:
+                prompt = self._prompt_engine.build(question=cleaned, product_info=product_info, context=context)
+            else:
+                prompt = self._prompt_engine.build(question=cleaned, product_info=product_info)
 
         return prompt, product_id, context_cleared
 
@@ -112,7 +129,7 @@ _DIRECT_ANSWER_PREFIX = "\x00DIRECT\x00"
 _LIST_REQUEST_PATTERN = re.compile(
     r"(что|чем)\s+(ты\s+)?(умеешь|можешь|знаешь)"
     r"|какие\s+(есть\s+)?(продукт|программ|страховк|полис)"
-    r"|(список|перечень)\s+(продукт|программ|страховк|полис)"
+    r"|(список|перечень)\s+(продукт|программ|страховк|страховок|полис)"
     r"|доступные\s+(продукт|программ|страховк)"
     r"|(помощь|помоги|помогите|справка)",
     re.IGNORECASE,
