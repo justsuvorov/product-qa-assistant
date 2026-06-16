@@ -8,7 +8,7 @@ from loguru import logger
 
 from product_assistant.core.config import settings
 
-_OVERLOAD_MESSAGE = "LLM модель перегружена. Повторите запрос позже."
+_OVERLOAD_MESSAGE = "Сервис модели временно недоступен, повторите запрос позже."
 
 
 # ==============================================================================
@@ -63,13 +63,18 @@ class ServiceLLMModel(AIModel, ABC):
     Интерфейс для LLM-моделей, доступных через внешний API.
     Примеры: Qwen, Gemini, OpenAI, YandexGPT.
 
-    Встроенная retry-логика при перегрузке сервиса (503 / UNAVAILABLE).
+    Встроенная retry-логика при ошибках сервиса:
+    - 503 / UNAVAILABLE / overloaded — 3 попытки с задержкой 5 сек
+    - Пустой ответ (ValueError) — 3 попытки с задержкой 1 сек
+
     Наследник обязан реализовать:
         - _call_api() — один запрос к API без retry
     """
 
     retries: int = 3
     retry_delay: int = 5
+    empty_response_retries: int = 3
+    empty_response_delay: int = 3
 
     @abstractmethod
     def _call_api(self, query: str) -> str:
@@ -79,6 +84,26 @@ class ServiceLLMModel(AIModel, ABC):
         for attempt in range(1, self.retries + 1):
             try:
                 return self._call_api(query)
+            except ValueError as exc:
+                # Ошибка "не вернул текст" — retry с коротким таймаутом
+                if self._is_empty_response(exc) and attempt < self.empty_response_retries:
+                    logger.warning(
+                        "{} не вернул текст, попытка {}/{}, повтор через {} сек",
+                        self.__class__.__name__, attempt, self.empty_response_retries, self.empty_response_delay,
+                    )
+                    time.sleep(self.empty_response_delay)
+                    continue
+
+                if self._is_empty_response(exc):
+                    logger.error(
+                        "{} не вернул валидный текст после {} попыток",
+                        self.__class__.__name__, self.empty_response_retries
+                    )
+                    return _OVERLOAD_MESSAGE
+
+                # Другие ValueError — сразу ошибка
+                raise RuntimeError(f"Ошибка {self.__class__.__name__}: {exc}") from exc
+
             except Exception as exc:
                 if self._is_overload(exc) and attempt < self.retries:
                     logger.warning(
@@ -98,8 +123,15 @@ class ServiceLLMModel(AIModel, ABC):
 
     @staticmethod
     def _is_overload(exc: Exception) -> bool:
+        """Проверить что это ошибка перегрузки сервиса."""
         text = str(exc)
         return "503" in text or "UNAVAILABLE" in text or "overloaded" in text.lower()
+
+    @staticmethod
+    def _is_empty_response(exc: Exception) -> bool:
+        """Проверить что это ошибка пустого ответа."""
+        text = str(exc)
+        return "не вернул текст" in text.lower() or "no response" in text.lower()
 
 
 # ==============================================================================
