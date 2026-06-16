@@ -25,6 +25,12 @@ from product_assistant.services.assistant import AIAssistantService
 def _run_scraping():
     """Парсит сайт и сохраняет продукты в БД."""
     paths = [p.strip() for p in settings.product_paths.split(",") if p.strip()] or None
+
+    logger.info("Инициализация скрэйпера: type={}, url={}, auth={}",
+                settings.scraper_type,
+                settings.products_website_url,
+                "enabled" if settings.scraper_username else "disabled")
+
     scraper = create_scraper(
         scraper_type=settings.scraper_type,
         base_url=settings.products_website_url,

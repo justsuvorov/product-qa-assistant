@@ -50,7 +50,13 @@ def create_scraper(
     if cls is None:
         raise ValueError(
             f"Неизвестный тип парсера: '{scraper_type}'. "
-            f"Доступные: auto, selenium, {', '.join(scrapers.keys())}"
+            f"Доступные: auto, requests, selenium, playwright"
         )
 
-    return cls(base_url=base_url, product_paths=product_paths, timeout=timeout)
+    return cls(
+        base_url=base_url,
+        product_paths=product_paths,
+        timeout=timeout,
+        username=username,
+        password=password,
+    )

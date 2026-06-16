@@ -26,6 +26,22 @@ except ImportError:
 
 class PlaywrightScraper(BaseScraper):
 
+    def __init__(self, base_url: str, product_paths: list[str] | None = None,
+                 timeout: int = 30, username: str = "", password: str = "", **kwargs):
+        """
+        Инициализация Playwright парсера.
+
+        Args:
+            base_url: URL сайта для парсинга
+            product_paths: Конкретные пути продуктов (опционально)
+            timeout: Timeout в секундах (по умолчанию 30)
+            username: Имя пользователя для Keycloak авторизации
+            password: Пароль для Keycloak авторизации
+        """
+        super().__init__(base_url=base_url, product_paths=product_paths, timeout=timeout, **kwargs)
+        self._username = username
+        self._password = password
+
     def scrape_all(self) -> list[dict]:
         if not self._base_url:
             logger.warning("PRODUCTS_WEBSITE_URL не задан — парсинг пропущен")
@@ -47,6 +63,10 @@ class PlaywrightScraper(BaseScraper):
             ctx = browser.new_context(locale="ru-RU")
             page = ctx.new_page()
 
+            # Авторизация если переданы credentials
+            if self._username and self._password:
+                self._login(page)
+
             # Если пути заданы явно — берём их; иначе обнаруживаем с базовой страницы
             if self._product_paths:
                 urls = self._resolve_product_urls()
@@ -66,6 +86,91 @@ class PlaywrightScraper(BaseScraper):
 
         logger.info("Итого спарсено (playwright): {}", len(results))
         return results
+
+    def _login(self, page) -> None:
+        """
+        Авторизация через Keycloak — заполняет форму логина и сабмитит.
+
+        Args:
+            page: Playwright page объект
+        """
+        logger.info("Выполняем авторизацию на {}", self._base_url)
+        try:
+            page.goto(self._base_url, wait_until="load", timeout=self._timeout * 1000)
+
+            # Keycloak редиректит на страницу логина — ждём поля username
+            try:
+                page.wait_for_selector('#username, input[name="username"], #login', timeout=10_000)
+            except Exception:
+                logger.warning("Не удалось найти поле username, пропускаем авторизацию")
+                return
+
+            # Заполняем логин
+            username_field = None
+            for selector in ['#username', 'input[name="username"]', '#login']:
+                try:
+                    username_field = page.query_selector(selector)
+                    if username_field:
+                        break
+                except Exception:
+                    pass
+
+            if username_field:
+                username_field.fill(self._username)
+                logger.info("Заполнено поле username")
+            else:
+                logger.warning("Не удалось найти и заполнить поле username")
+                return
+
+            # Заполняем пароль
+            password_field = None
+            for selector in ['#password', 'input[name="password"]', 'input[type="password"]']:
+                try:
+                    password_field = page.query_selector(selector)
+                    if password_field:
+                        break
+                except Exception:
+                    pass
+
+            if password_field:
+                password_field.fill(self._password)
+                logger.info("Заполнено поле password")
+            else:
+                logger.warning("Не удалось найти и заполнить поле password")
+                return
+
+            # Кликаем кнопку входа
+            submit_btn = None
+            for selector in ['#kc-login', 'input[type="submit"]', 'button[type="submit"]']:
+                try:
+                    submit_btn = page.query_selector(selector)
+                    if submit_btn:
+                        submit_btn.click()
+                        logger.info("Нажата кнопка входа")
+                        break
+                except Exception:
+                    pass
+
+            if not submit_btn:
+                logger.warning("Не удалось найти и нажать кнопку входа")
+                return
+
+            # Ждём завершения авторизации
+            try:
+                page.wait_for_load_state("load", timeout=10_000)
+            except Exception:
+                pass
+
+            try:
+                page.wait_for_load_state("networkidle", timeout=8_000)
+            except Exception:
+                pass
+
+            logger.info("Авторизация выполнена, текущий URL: {}", page.url)
+
+        except Exception as exc:
+            logger.error("Ошибка при авторизации: {}", exc)
+            raise
 
     def _discover_urls(self, page) -> list[str]:
         """

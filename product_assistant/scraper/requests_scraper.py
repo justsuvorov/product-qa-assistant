@@ -16,8 +16,19 @@ from product_assistant.scraper.base import BaseScraper
 
 class RequestsScraper(BaseScraper):
 
-    def __init__(self, base_url: str, product_paths: list[str] | None = None, timeout: int = 15):
-        super().__init__(base_url, product_paths, timeout)
+    def __init__(self, base_url: str, product_paths: list[str] | None = None, timeout: int = 15,
+                 username: str = "", password: str = "", **kwargs):
+        """
+        Инициализация парсера для статических сайтов.
+
+        Args:
+            base_url: URL сайта для парсинга
+            product_paths: Конкретные пути продуктов (опционально)
+            timeout: Timeout в секундах (по умолчанию 15)
+            username: Имя пользователя (не используется для requests парсера)
+            password: Пароль (не используется для requests парсера)
+        """
+        super().__init__(base_url, product_paths, timeout, **kwargs)
         self._session = requests.Session()
         self._session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; ProductQABot/1.0)"})
 

@@ -214,22 +214,58 @@ ORDER BY q.created_at DESC LIMIT 10;
 ```bash
 pip install -r requirements-dev.txt
 pytest tests/ -v
+pytest tests/ --cov=product_assistant  # С покрытием
 ```
 
-60 юнит-тестов покрывают:
+Текущее состояние: **0% покрытия** (тесты не реализованы). 
+Смотри [DEVELOPMENT.md](DEVELOPMENT.md#написание-тестов) для примеров тестов.
 
-| Модуль | Что проверяется |
-|--------|----------------|
-| `PostProcessor` | Очистка кода/кавычек, вводные фразы, нормализация, экранирование MarkdownV2 |
-| `PromptEngine` | Сборка промпта, обработка отсутствующих ключей |
-| `TextPreprocessor` | Очистка текста, поиск продукта по словам, полный pipeline |
-| `ReportExport` | Структура JSON-ответа, запись в БД, обработка ошибок БД |
-| `AIAssistantService` | Порядок вызова компонентов, передача product_id |
-| `ServiceLLMModel` | Retry-логика: перегрузка 503, исчерпание попыток, нештатные ошибки |
-| `document_parser` | Определение расширений, нормализация текста |
-| `BaseScraper` / `create_scraper` | Резолюция URL, фабрика парсеров, автодетект |
+**Планируемое покрытие:**
+- `PostProcessor` — очистка кода, экранирование MarkdownV2
+- `TextPreprocessor` — очистка текста, поиск продукта, полный pipeline
+- `PromptEngine` — сборка промпта
+- `ReportExport` — JSON-ответ, сохранение в БД
+- `AIAssistantService` — оркестрирование pipeline
+- Scrapers — парсинг страниц, обработка документов
+- Edge cases — пустые ответы, ошибки БД, timeout'ы
 
-Тесты не требуют подключения к БД, LLM или браузеру — все внешние зависимости замокированы.
+Целевой показатель: **>70% покрытия** критических путей.
+
+---
+
+## Известные проблемы и план решения
+
+⚠️ **[REFACTORING.md](REFACTORING.md)** содержит подробный план по улучшению проекта.
+
+### Критические (исправить немедленно)
+1. **JavaScript синтаксис ошибка** в `product_assistant/scraper/playwright_scraper.py:89`
+   - Стоит Cyrillic символ `Но` в JavaScript коде
+   - **Влияние:** page.evaluate() падает
+   
+2. **SSL проверка отключена** в `document_parser.py` и `model.py`
+   - **Риск:** MITM атаки в production
+   - **Решение:** Включить или задокументировать причину
+
+### Высокий приоритет (рефакторинг)
+- **Дублирование кода:** 3 функции `_clean_text()`, 4 реализации `_parse_page()`
+- **Привязка к БД:** `TextPreprocessor` напрямую работает с БД (сложно тестировать)
+- **Bare except блоки:** 12+ мест где ошибки молча игнорируются
+- **Отсутствие тестов:** 0% покрытия
+
+### Рекомендуемая схема рефакторинга
+1. **Неделя 1:** Исправить критические ошибки, объединить дублирующийся код
+2. **Неделя 2-3:** Отделить БД от бизнес-логики, добавить абстрактные слои
+3. **Неделя 3-4:** Написать unit и интеграционные тесты
+
+Смотри [REFACTORING.md](REFACTORING.md) для пошагового плана.
+
+---
+
+## Документация
+
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — Подробное описание архитектуры, модулей и потока данных
+- **[REFACTORING.md](REFACTORING.md)** — План рефакторинга, выявленные проблемы и способы их решения
+- **[DEVELOPMENT.md](DEVELOPMENT.md)** — Руководство по разработке, тестированию и стандартам кода
 
 ---
 
@@ -238,10 +274,12 @@ pytest tests/ -v
 ```
 product_assistant/
 ├── ai/
-│   ├── model.py              # QwenModel / OllamaModel (AIModel ABC) + retry логика
+│   ├── model.py              # QwenModel / GeminiModel (AIModel ABC) + retry логика
 │   ├── preprocessor.py       # TextPreprocessor + поиск продукта по словам
-│   ├── promt_builders.py     # PromptEngine
-│   └── postprocessor.py      # Форматирование ответа LLM
+│   ├── promt_builders.py     # PromptEngine — сборка промпта
+│   ├── postprocessor.py      # Форматирование ответа LLM для Telegram
+│   ├── product_mapper.py     # Маппинг синонимов продуктов
+│   └── encoders.py           # JSON encoder'ы
 ├── core/
 │   ├── config.py             # Settings (pydantic-settings, .env)
 │   └── database.py           # SQLAlchemy engine + init_db
@@ -255,16 +293,21 @@ product_assistant/
 │   ├── detector.py           # ScraperDetector — авто выбор типа парсера
 │   ├── requests_scraper.py   # Парсер статических сайтов
 │   ├── playwright_scraper.py # Парсер SPA + вкладки + документы
+│   ├── selenium_scraper.py   # Парсер сложных SPA + аутентификация
+│   ├── local_files_scraper.py# Парсер локальных файлов
 │   ├── document_parser.py    # Извлечение текста: PDF, DOCX, PPTX
+│   ├── parser.py             # Утилиты парсинга (BeautifulSoup)
 │   └── __init__.py           # Фабрика create_scraper()
 └── services/
     └── assistant.py          # AIAssistantService (оркестратор)
+
 main.py                       # FastAPI + lifespan (парсинг при старте)
-bot_main.py                   # Telegram-бот (aiogram 3, F.text)
-tests/                        # Юнит-тесты (pytest, 60 тестов)
-Dockerfile
+bot_main.py                   # Telegram-бот (aiogram 3)
+product_aliases.json          # Синонимы продуктов
+tests/                        # Юнит-тесты (pytest)
 docker-compose.yaml
+Dockerfile
 .env.example
 requirements.txt
-requirements-dev.txt          # pytest + зависимости для тестов
+requirements-dev.txt          # pytest + dev зависимости
 ```
