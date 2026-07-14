@@ -256,21 +256,22 @@ class SeleniumScraper(BaseScraper):
         if not content_tag:
             return None
 
-        sections = [self._clean_text(content_tag.get_text(separator="\n", strip=True))]
+        main_content = self._clean_text(content_tag.get_text(separator="\n", strip=True))
+        sections = [f"Страница сайта: {url}\n\n{main_content}"]
 
         # Контент вкладок
         for tab in tab_links:
             logger.info("Парсим вкладку: {} ({})", tab["title"], tab["url"])
             tab_text = self._extract_tab_content(driver, tab["url"])
             if tab_text:
-                sections.append(f"=== {tab['title']} ===\n{tab_text}")
+                sections.append(f"=== {tab['title']} ===\nИсточник: {tab['url']}\n\n{tab_text}")
 
         # Документы
         for doc in doc_links:
             logger.info("Обрабатываю {}: {}", doc["ext"].upper(), doc["url"])
             doc_text = extract_document_text(doc["url"], timeout=self._timeout, cookies=session_cookies)
             if doc_text:
-                sections.append(f"--- Документ [{doc['ext'].upper()}]: {doc['title']} ---\n{doc_text}")
+                sections.append(f"--- Документ [{doc['ext'].upper()}]: {doc['title']} ---\nИсточник: {doc['url']}\n\n{doc_text}")
 
         if doc_links:
             logger.info("Документов на странице {}: {}", url, len(doc_links))

@@ -37,6 +37,16 @@ class PostProcessor:
         return clean_text.strip()
 
     def _escape_for_markdown_v2(self, text: str) -> str:
+        # Сначала найдём и временно замаскируем URL, чтобы не экранировать их символы
+        url_pattern = r'https?://[^\s\])\}]*'
+        urls = re.findall(url_pattern, text)
+        url_placeholders = {}
+
+        for i, url in enumerate(urls):
+            placeholder = f"__URL_PLACEHOLDER_{i}__"
+            url_placeholders[placeholder] = url
+            text = text.replace(url, placeholder, 1)
+
         # 1. Экранируем все стандартные спецсимволы (кроме звездочки)
         escape_chars = r'_[]()~`>#+-=|{}.!'
         text = re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
@@ -48,5 +58,9 @@ class PostProcessor:
         # Нам нужно сохранить **, но экранировать одиночные *.
         # Используем негативный lookbehind и lookahead, чтобы найти * не рядом с другой *
         text = re.sub(r'(?<!\*)\*(?!\*)', r'\*', text)
+
+        # 4. Восстанавливаем URL
+        for placeholder, url in url_placeholders.items():
+            text = text.replace(placeholder, url)
 
         return text
