@@ -44,15 +44,21 @@ class LocalFilesScraper(BaseScraper):
 
         results = []
         for f in files:
+            rel_path = f.relative_to(self._dir)
+            if len(rel_path.parts) > 1:
+                product_name = rel_path.parts[0]
+            else:
+                product_name = f.stem
+
             try:
                 text = self._extract(f)
                 if text:
                     results.append({
-                        "name": f.stem,
+                        "name": product_name,
                         "url": f.as_uri(),
                         "content": text,
                     })
-                    logger.info("Прочитан файл: {}", f.name)
+                    logger.info("Прочитан файл: {} (продукт: {})", f.name, product_name)
                 else:
                     logger.warning("Пустой контент: {}", f.name)
             except Exception as exc:
