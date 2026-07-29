@@ -50,9 +50,10 @@ class TextPreprocessor(Preprocessor):
         is_list_request = _is_product_list_request(question_record.question_text)
         if is_list_request:
             logger.info("Запрос на список продуктов/возможностей — обрабатываем через LLM")
-            products = self._db.get_all_products()
-            if products:
-                product_list = "\n".join(f"• {p.name}" for p in products)
+            all_products = self._db.get_all_products()
+            if all_products:
+                unique_names = set(p.name for p in all_products if p.name)
+                product_list = "\n".join(f"• {name}" for name in unique_names)
                 product_info = f"Доступные страховые продукты:\n\n{product_list}"
             else:
                 product_info = "Информация о продуктах ещё не загружена."
@@ -74,8 +75,8 @@ class TextPreprocessor(Preprocessor):
         )
         self._db.connection.commit()
 
-        products = self._db.get_all_products()
-        logger.info("Продуктов в БД: {}", len(products))
+        all_products = self._db.get_all_products()
+        logger.info("Продуктов в БД: {}", len(all_products))
 
         context_cleared = False
         product_id = None
@@ -83,35 +84,50 @@ class TextPreprocessor(Preprocessor):
         # Если это запрос на список продуктов — используем специальный product_info
         if is_list_request:
             logger.info("Используем список продуктов как контекст для LLM")
-            product = None
+            products_matched = []
         else:
-            product = _find_best_product(cleaned, products)
+            # _find_best_product теперь возвращает список совпавших строк [Product, Product, ...]
+            products_matched = _find_best_product(cleaned, all_products)
+
+            # Берем ID и Name из первого продукта в списке (если нашли)
+            first_matched = products_matched[0] if products_matched else None
 
             # Проверяем смену продукта: если в вопросе явно найден другой продукт чем в контексте
-            if product is not None and self._request.user_id is not None:
+            if first_matched is not None and self._request.user_id is not None:
                 context_product = self._db.get_last_product_for_user(self._request.user_id)
-                if context_product is not None and context_product.id != product.id:
+                if context_product is not None and context_product.id != first_matched.id:
                     logger.info(
                         "Смена продукта: \"{}\" → \"{}\", контекст очищен",
-                        context_product.name, product.name,
+                        context_product.name, first_matched.name,
                     )
                     self._db.clear_user_context(self._request.user_id)
                     context = []
                     context_cleared = True
 
-            if product is None and context:
+            # Если по тексту ничего не нашли — пробуем достать из контекста пользователя
+            if not products_matched and context:
                 logger.info("Продукт по тексту не найден — берём из контекста пользователя")
-                product = self._db.get_last_product_for_user(self._request.user_id)
+                last_product = self._db.get_last_product_for_user(self._request.user_id)
+                if last_product:
+                    # Если в контексте лежал продукт, ищем все строки для него
+                    products_matched = [p for p in all_products if p.name == last_product.name]
 
-            if product:
-                logger.info("Выбран продукт: \"{}\" (id={})", product.name, product.id)
-                product_info = f"Продукт: {product.name}\n\n{product.content}"
-                product_id = product.id
+            if products_matched:
+                first_matched = products_matched[0]
+                logger.info("Выбран продукт: \"{}\" (id={})", first_matched.name, first_matched.id)
+
+                # Склеиваем контент со всех строк продукта через разделитель
+                combined_content = "\n\n---\n\n".join(
+                    p.content for p in products_matched if getattr(p, 'content', None)
+                )
+
+                product_info = f"Продукт: {first_matched.name}\n\n{combined_content}"
+                product_id = first_matched.id
             else:
                 logger.warning("Продукт не найден — ответ без контекста продукта")
                 product_info = "Информация о продукте не найдена в базе данных."
 
-        # Для запроса на список продуктов используем специальный role
+        # Для запроса на список продуктов используем специальную роль
         if is_list_request:
             list_engine = PromptEngine(role=self._list_request_role, template=self._prompt_engine._template)
             prompt = list_engine.build(question=cleaned, product_info=product_info)
@@ -147,23 +163,26 @@ def _clean_text(text: str) -> str:
     return text
 
 
-def _find_best_product(question: str, products) -> object | None:
+def _find_best_product(question: str, products: list) -> list:
     """
-    Поиск продукта по пересечению слов из вопроса и имени продукта.
-    Возвращает лучший результат или None, если совпадений нет.
+    Ищет наилучший продукт по названию и возвращает ВСЕ строки/записи,
+    связанные с этим продуктом.
     """
     if not products:
-        return None
+        return []
 
     question_words = set(re.findall(r'\w+', question.lower()))
     best_score = 0
-    best_product = None
+    best_product_name = None
 
     for product in products:
         name_words = set(re.findall(r'\w+', product.name.lower()))
         score = len(name_words & question_words)
         if score > best_score:
             best_score = score
-            best_product = product
+            best_product_name = product.name
 
-    return best_product if best_score > 0 else None
+    if best_score == 0 or not best_product_name:
+        return []
+
+    return [p for p in products if p.name == best_product_name]

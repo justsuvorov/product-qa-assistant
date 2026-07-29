@@ -115,13 +115,19 @@ def debug_prompt(q: str = Query(..., description="Вопрос для отлад
     try:
         cleaned = _clean_text(q)
         normalized = product_mapper.normalize(cleaned)
-        products = db.get_all_products()
-        product = _find_best_product(normalized, products)
+        all_products = db.get_all_products()
 
-        if product:
-            product_info = f"Продукт: {product.name}\n\n{product.content}"
-            product_id = product.id
-            product_name = product.name
+        products = _find_best_product(normalized, all_products)
+
+        if products:
+            product_name = products[0].name
+            product_id = getattr(products[0], 'id', None)
+
+            combined_content = "\n\n---\n\n".join(
+                p.content for p in products if p.content
+            )
+
+            product_info = f"Продукт: {product_name}\n\n{combined_content}"
         else:
             product_info = "Информация о продукте не найдена в базе данных."
             product_id = None
