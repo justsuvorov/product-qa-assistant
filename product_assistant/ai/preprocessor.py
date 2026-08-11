@@ -38,36 +38,26 @@ class TextPreprocessor(Preprocessor):
         self._db = db_object
         self._request = request
         self._prompt_engine = prompt_engine
+        self._prompt_engine_common = PromptEngine(role=settings.ai_role_common, template=settings.ai_prompt_template)
         self._mapper = product_mapper or ProductMapper()
         self._list_request_role = settings.ai_list_request_role
 
-    def query(self) -> tuple[str, int | None, bool]:
-        """Возвращает (prompt_or_direct_answer, product_id, context_cleared)."""
+    def query(self) -> tuple[str, str | None, int | None, bool]:
+        """
+        Возвращает (primary_prompt, fallback_prompt, product_id, context_cleared).
+        - primary_prompt: промпт для первой попытки (с конкретным продуктом или сразу 'Общий')
+        - fallback_prompt: промпт с категорией 'Общий' (если первая попытка вернет NOT_ENOUGH_INFO)
+        """
         question_record = self._db.get_question(self._request.message_id)
         logger.info("Вопрос получен: \"{}\"", question_record.question_text[:120])
 
-        # Проверяем если это запрос на список продуктов
         is_list_request = _is_product_list_request(question_record.question_text)
-        if is_list_request:
-            logger.info("Запрос на список продуктов/возможностей — обрабатываем через LLM")
-            all_products = self._db.get_all_products()
-            if all_products:
-                unique_names = set(p.name for p in all_products if p.name)
-                product_list = "\n".join(f"• {name}" for name in unique_names)
-                product_info = f"Доступные страховые продукты:\n\n{product_list}"
-            else:
-                product_info = "Информация о продуктах ещё не загружена."
-        else:
-            product_info = None
-
         cleaned = _clean_text(question_record.question_text)
         cleaned = self._mapper.normalize(cleaned)
-        if cleaned != question_record.question_text:
-            logger.info("После нормализации: \"{}\"", cleaned[:120])
 
         context = self._db.get_context(self._request.user_id)
-        logger.info("Контекст диалога: {} сообщений (user_id={})", len(context), self._request.user_id)
 
+        # Сохраняем очищенный текст
         self._db.connection.execute(
             update(UserQuestion)
             .where(UserQuestion.id == self._request.message_id)
@@ -76,68 +66,78 @@ class TextPreprocessor(Preprocessor):
         self._db.connection.commit()
 
         all_products = self._db.get_all_products()
-        logger.info("Продуктов в БД: {}", len(all_products))
-
         context_cleared = False
         product_id = None
+        fallback_prompt = None
 
-        # Если это запрос на список продуктов — используем специальный product_info
+        # Вспомогательная функция для получения текста категории "Общий"
+        def _get_general_info() -> str:
+            general_records = [
+                p for p in all_products
+                if getattr(p, 'category', None) == "Общее" or p.name == "Общее"
+            ]
+            if general_records:
+                content = "\n\n---\n\n".join(p.content for p in general_records if p.content)
+                return f"Общие правила и условия страхования:\n\n{content}"
+            return "Общая информация о правилах страхования отсутствует в базе."
+
+        # Обработка запроса на СПИСОК продуктов
         if is_list_request:
-            logger.info("Используем список продуктов как контекст для LLM")
-            products_matched = []
-        else:
-            # _find_best_product теперь возвращает список совпавших строк [Product, Product, ...]
-            products_matched = _find_best_product(cleaned, all_products)
+            logger.info("Запрос на список продуктов — обрабатываем через LLM")
+            unique_names = set(p.name for p in all_products if p.name and p.name != "Общий")
+            product_list = "\n".join(f"• {name}" for name in unique_names)
+            product_info = f"Доступные страховые продукты:\n\n{product_list}"
 
-            # Берем ID и Name из первого продукта в списке (если нашли)
-            first_matched = products_matched[0] if products_matched else None
-
-            # Проверяем смену продукта: если в вопросе явно найден другой продукт чем в контексте
-            if first_matched is not None and self._request.user_id is not None:
-                context_product = self._db.get_last_product_for_user(self._request.user_id)
-                if context_product is not None and context_product.id != first_matched.id:
-                    logger.info(
-                        "Смена продукта: \"{}\" → \"{}\", контекст очищен",
-                        context_product.name, first_matched.name,
-                    )
-                    self._db.clear_user_context(self._request.user_id)
-                    context = []
-                    context_cleared = True
-
-            # Если по тексту ничего не нашли — пробуем достать из контекста пользователя
-            if not products_matched and context:
-                logger.info("Продукт по тексту не найден — берём из контекста пользователя")
-                last_product = self._db.get_last_product_for_user(self._request.user_id)
-                if last_product:
-                    # Если в контексте лежал продукт, ищем все строки для него
-                    products_matched = [p for p in all_products if p.name == last_product.name]
-
-            if products_matched:
-                first_matched = products_matched[0]
-                logger.info("Выбран продукт: \"{}\" (id={})", first_matched.name, first_matched.id)
-
-                # Склеиваем контент со всех строк продукта через разделитель
-                combined_content = "\n\n---\n\n".join(
-                    p.content for p in products_matched if getattr(p, 'content', None)
-                )
-
-                product_info = f"Продукт: {first_matched.name}\n\n{combined_content}"
-                product_id = first_matched.id
-            else:
-                logger.warning("Продукт не найден — ответ без контекста продукта")
-                product_info = "Информация о продукте не найдена в базе данных."
-
-        # Для запроса на список продуктов используем специальную роль
-        if is_list_request:
             list_engine = PromptEngine(role=self._list_request_role, template=self._prompt_engine._template)
-            prompt = list_engine.build(question=cleaned, product_info=product_info)
-        else:
-            if context:
-                prompt = self._prompt_engine.build(question=cleaned, product_info=product_info, context=context)
-            else:
-                prompt = self._prompt_engine.build(question=cleaned, product_info=product_info)
+            primary_prompt = list_engine.build(question=cleaned, product_info=product_info)
+            return primary_prompt, None, None, False
 
-        return prompt, product_id, context_cleared
+        # ПОИСК конкретного продукта (исключая категорию "Общий")
+        specific_products = [
+            p for p in all_products
+            if getattr(p, 'category', None) != "Общее" and p.name != "Общее"
+        ]
+        products_matched = _find_best_product(cleaned, specific_products)
+
+        # Если по тексту не нашли — проверяем контекст диалога
+        if not products_matched and context:
+            last_product = self._db.get_last_product_for_user(self._request.user_id)
+            if last_product and last_product.name != "Общее":
+                products_matched = [p for p in all_products if p.name == last_product.name]
+
+        # Смена продукта пользователем
+        if products_matched and self._request.user_id is not None:
+            first_matched = products_matched[0]
+            context_product = self._db.get_last_product_for_user(self._request.user_id)
+            if context_product is not None and context_product.id != first_matched.id:
+                logger.info("Смена продукта: \"{}\" → \"{}\"", context_product.name, first_matched.name)
+                self._db.clear_user_context(self._request.user_id)
+                context = []
+                context_cleared = True
+
+        # СБОРКА ПРОМПТОВ
+        if products_matched:
+            first_matched = products_matched[0]
+            product_id = first_matched.id
+            logger.info("Выбран конкретный продукт: \"{}\" (id={})", first_matched.name, product_id)
+
+            # 1. Первичный product_info (только найденный продукт)
+            product_content = "\n\n---\n\n".join(p.content for p in products_matched if p.content)
+            primary_info = f"Продукт: {first_matched.name}\n\n{product_content}"
+            primary_prompt = self._prompt_engine.build(question=cleaned, product_info=primary_info, context=context)
+
+            # 2. Резервный fallback_prompt (готовим с категорией "Общее")
+            general_info = _get_general_info()
+            fallback_prompt = self._prompt_engine_common.build(question=cleaned, product_info=general_info, context=context)
+
+        else:
+            # Конкретный продукт не найден — сразу используем категорию "Общее"
+            logger.info("Конкретный продукт не найден — используем базу 'Общее'")
+            general_info = _get_general_info()
+            primary_prompt = self._prompt_engine_common.build(question=cleaned, product_info=general_info, context=context)
+            fallback_prompt = None
+
+        return primary_prompt, fallback_prompt, product_id, context_cleared
 
 
 _DIRECT_ANSWER_PREFIX = "\x00DIRECT\x00"

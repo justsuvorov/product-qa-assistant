@@ -138,6 +138,7 @@ def debug_prompt(q: str = Query(..., description="Вопрос для отлад
 
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         md = f"""# Debug Prompt — {ts}
+...
 
 ## Вопрос
 ```
