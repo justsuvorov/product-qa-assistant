@@ -1,13 +1,17 @@
 import re
 from dataclasses import dataclass
 
+import numpy as np
 from loguru import logger
 from sqlalchemy import update
+from rapidfuzz import process, fuzz
+from sentence_transformers import CrossEncoder
 
 from product_assistant.ai.product_mapper import BaseProductMapper, ProductMapper
 from product_assistant.ai.promt_builders import PromptEngine
 from product_assistant.models.schema import DBObject, UserQuestion
 
+reranker = CrossEncoder('./models/bge-reranker-v2-m3')
 
 @dataclass
 class ProcessingTask:
@@ -162,27 +166,32 @@ def _clean_text(text: str) -> str:
     text = re.sub(r'\s+', ' ', text)
     return text
 
-
 def _find_best_product(question: str, products: list) -> list:
     """
-    Ищет наилучший продукт по названию и возвращает ВСЕ строки/записи,
-    связанные с этим продуктом.
-    """
-    if not products:
+        Использует RapidFuzz для быстрого отбора кандидатов и Cross-Encoder для точного ранжирования.
+        """
+    if not question or not products:
         return []
 
-    question_words = set(re.findall(r'\w+', question.lower()))
-    best_score = 0
-    best_product_name = None
-
-    for product in products:
-        name_words = set(re.findall(r'\w+', product.name.lower()))
-        score = len(name_words & question_words)
-        if score > best_score:
-            best_score = score
-            best_product_name = product.name
-
-    if best_score == 0 or not best_product_name:
+    fuzzy_candidates = process.extract(
+        question,
+        list(dict.fromkeys([p.name for p in products])),
+        scorer=fuzz.token_set_ratio,
+        limit=10
+    )
+    if not fuzzy_candidates or fuzzy_candidates[0][1] < 20:
         return []
 
-    return [p for p in products if p.name == best_product_name]
+    candidate_names = [item[0] for item in fuzzy_candidates]
+
+    pairs = [[question, name] for name in candidate_names]
+    scores = reranker.predict(pairs)
+
+    best_idx = int(np.argmax(scores))
+    best_product = candidate_names[best_idx]
+    best_score = scores[best_idx]
+
+    if best_score < 1.5:
+        return []
+
+    return [p for p in products if p.name == best_product]
