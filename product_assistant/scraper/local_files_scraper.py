@@ -55,7 +55,7 @@ class LocalFilesScraper(BaseScraper):
                 if text:
                     results.append({
                         "name": product_name,
-                        "url": f.as_uri(),
+                        "url": f.resolve().as_uri(),
                         "content": text,
                     })
                     logger.info("Прочитан файл: {} (продукт: {})", f.name, product_name)

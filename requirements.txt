@@ -18,4 +18,6 @@ python-pptx
 google-genai
 aiohttp_socks
 httpx[socks]
+rapidfuzz
+sentence_transformers
 socksio>=1.0.0
