@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass
+from typing import Union, List
 
 import numpy as np
 from loguru import logger
@@ -46,7 +47,7 @@ class TextPreprocessor(Preprocessor):
         self._mapper = product_mapper or ProductMapper()
         self._list_request_role = settings.ai_list_request_role
 
-    def query(self) -> tuple[str, str | None, int | None, bool]:
+    def query(self) -> tuple[str, List, int | None, bool]:
         """
         Возвращает (primary_prompt, fallback_prompt, product_id, context_cleared).
         - primary_prompt: промпт для первой попытки (с конкретным продуктом или сразу 'Общий')
@@ -75,22 +76,23 @@ class TextPreprocessor(Preprocessor):
         fallback_prompt = None
 
         # Вспомогательная функция для получения текста категории "Общий"
-        def _get_general_info() -> str:
+        def _get_general_info() -> List[Union[str, int, None]]:
             general_records = [
                 p for p in all_products
                 if getattr(p, 'category', None) == "Общее" or p.name == "Общее"
             ]
             if general_records:
                 content = "\n\n---\n\n".join(p.content for p in general_records if p.content)
-                return f"Общие правила и условия страхования:\n\n{content}"
-            return "Общая информация о правилах страхования отсутствует в базе."
+                return [f"Общие правила и условия страхования:\n\n{content}", general_records[0].id]
+            return ["Общая информация о правилах страхования отсутствует в базе.", None]
 
         # Обработка запроса на СПИСОК продуктов
         if is_list_request:
             logger.info("Запрос на список продуктов — обрабатываем через LLM")
-            unique_names = set(p.name for p in all_products if p.name and p.name != "Общий")
+            unique_names = set(p.name for p in all_products if p.name and p.name != "Общее")
             product_list = "\n".join(f"• {name}" for name in unique_names)
             product_info = f"Доступные страховые продукты:\n\n{product_list}"
+            logger.info(product_info)
 
             list_engine = PromptEngine(role=self._list_request_role, template=self._prompt_engine._template)
             primary_prompt = list_engine.build(question=cleaned, product_info=product_info)
@@ -133,6 +135,7 @@ class TextPreprocessor(Preprocessor):
             # 2. Резервный fallback_prompt (готовим с категорией "Общее")
             general_info = _get_general_info()
             fallback_prompt = self._prompt_engine_common.build(question=cleaned, product_info=general_info, context=context)
+            general_info.append(fallback_prompt)
 
         else:
             # Конкретный продукт не найден — сразу используем категорию "Общее"
@@ -140,8 +143,9 @@ class TextPreprocessor(Preprocessor):
             general_info = _get_general_info()
             primary_prompt = self._prompt_engine_common.build(question=cleaned, product_info=general_info, context=context)
             fallback_prompt = None
+            general_info.append(fallback_prompt)
 
-        return primary_prompt, fallback_prompt, product_id, context_cleared
+        return primary_prompt, general_info, product_id, context_cleared
 
 
 _DIRECT_ANSWER_PREFIX = "\x00DIRECT\x00"
@@ -167,9 +171,7 @@ def _clean_text(text: str) -> str:
     return text
 
 def _find_best_product(question: str, products: list) -> list:
-    """
-        Использует RapidFuzz для быстрого отбора кандидатов и Cross-Encoder для точного ранжирования.
-        """
+    "Использует RapidFuzz для быстрого отбора кандидатов и Cross-Encoder для точного ранжирования."
     if not question or not products:
         return []
 
@@ -180,9 +182,11 @@ def _find_best_product(question: str, products: list) -> list:
         limit=10
     )
     if not fuzzy_candidates or fuzzy_candidates[0][1] < 20:
+        logger.warning("Не найдены продукты, совпадающие с текстом вопроса")
         return []
 
     candidate_names = [item[0] for item in fuzzy_candidates]
+    logger.info(f"Совпадения продуктов по тексту вопроса: {candidate_names}")
 
     pairs = [[question, name] for name in candidate_names]
     scores = reranker.predict(pairs)
@@ -191,7 +195,10 @@ def _find_best_product(question: str, products: list) -> list:
     best_product = candidate_names[best_idx]
     best_score = scores[best_idx]
 
-    if best_score < 1.5:
+    logger.info(f"Scores продуктов: {list(zip(candidate_names, scores))}")
+
+    if best_score < 0.1:
+        logger.warning("Нет продукта с score >= 0.1")
         return []
 
     return [p for p in products if p.name == best_product]
