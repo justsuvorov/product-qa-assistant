@@ -19,6 +19,5 @@ google-genai
 aiohttp_socks
 httpx[socks]
 rapidfuzz
-numpy
 sentence_transformers
 socksio>=1.0.0

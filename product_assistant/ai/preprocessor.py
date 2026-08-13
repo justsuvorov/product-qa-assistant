@@ -47,7 +47,7 @@ class TextPreprocessor(Preprocessor):
         self._mapper = product_mapper or ProductMapper()
         self._list_request_role = settings.ai_list_request_role
 
-    def query(self) -> tuple[str, List, int | None, bool]:
+    def query(self) -> tuple[str, tuple[str, int | None] | None, int | None, bool]:
         """
         Возвращает (primary_prompt, fallback_prompt, product_id, context_cleared).
         - primary_prompt: промпт для первой попытки (с конкретным продуктом или сразу 'Общий')
@@ -76,15 +76,16 @@ class TextPreprocessor(Preprocessor):
         fallback_prompt = None
 
         # Вспомогательная функция для получения текста категории "Общий"
-        def _get_general_info() -> List[Union[str, int, None]]:
+        def _get_general_info() -> tuple[str, int | None]:
             general_records = [
                 p for p in all_products
                 if getattr(p, 'category', None) == "Общее" or p.name == "Общее"
             ]
+            gen_id = general_records[0].id if general_records else None
             if general_records:
                 content = "\n\n---\n\n".join(p.content for p in general_records if p.content)
-                return [f"Общие правила и условия страхования:\n\n{content}", general_records[0].id]
-            return ["Общая информация о правилах страхования отсутствует в базе.", None]
+                return f"Общие правила и условия страхования:\n\n{content}", gen_id
+            return "Общая информация о правилах страхования отсутствует в базе.", None
 
         # Обработка запроса на СПИСОК продуктов
         if is_list_request:
@@ -105,47 +106,31 @@ class TextPreprocessor(Preprocessor):
         ]
         products_matched = _find_best_product(cleaned, specific_products)
 
-        # Если по тексту не нашли — проверяем контекст диалога
-        if not products_matched and context:
-            last_product = self._db.get_last_product_for_user(self._request.user_id)
-            if last_product and last_product.name != "Общее":
-                products_matched = [p for p in all_products if p.name == last_product.name]
-
-        # Смена продукта пользователем
-        if products_matched and self._request.user_id is not None:
-            first_matched = products_matched[0]
-            context_product = self._db.get_last_product_for_user(self._request.user_id)
-            if context_product is not None and context_product.id != first_matched.id:
-                logger.info("Смена продукта: \"{}\" → \"{}\"", context_product.name, first_matched.name)
-                self._db.clear_user_context(self._request.user_id)
-                context = []
-                context_cleared = True
-
         # СБОРКА ПРОМПТОВ
         if products_matched:
             first_matched = products_matched[0]
             product_id = first_matched.id
             logger.info("Выбран конкретный продукт: \"{}\" (id={})", first_matched.name, product_id)
 
-            # 1. Первичный product_info (только найденный продукт)
             product_content = "\n\n---\n\n".join(p.content for p in products_matched if p.content)
             primary_info = f"Продукт: {first_matched.name}\n\n{product_content}"
             primary_prompt = self._prompt_engine.build(question=cleaned, product_info=primary_info, context=context)
 
-            # 2. Резервный fallback_prompt (готовим с категорией "Общее")
-            general_info = _get_general_info()
-            fallback_prompt = self._prompt_engine_common.build(question=cleaned, product_info=general_info, context=context)
-            general_info.append(fallback_prompt)
+            # Готовим fallback как пара: (промпт, id_продукта_общее)
+            general_info, general_product_id = _get_general_info()
+            fallback_prompt = self._prompt_engine_common.build(question=cleaned, product_info=general_info,
+                                                               context=context)
+            fallback = (fallback_prompt, general_product_id)
 
         else:
-            # Конкретный продукт не найден — сразу используем категорию "Общее"
+            # Конкретный продукт не найден — сразу подставляем 'Общее' и его product_id
             logger.info("Конкретный продукт не найден — используем базу 'Общее'")
-            general_info = _get_general_info()
-            primary_prompt = self._prompt_engine_common.build(question=cleaned, product_info=general_info, context=context)
-            fallback_prompt = None
-            general_info.append(fallback_prompt)
+            general_info, product_id = _get_general_info()
+            primary_prompt = self._prompt_engine_common.build(question=cleaned, product_info=general_info,
+                                                              context=context)
+            fallback = None
 
-        return primary_prompt, general_info, product_id, context_cleared
+        return primary_prompt, fallback, product_id, context_cleared
 
 
 _DIRECT_ANSWER_PREFIX = "\x00DIRECT\x00"

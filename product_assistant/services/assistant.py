@@ -21,10 +21,9 @@ class AIAssistantService:
 
     def result(self) -> dict:
         logger.info("[1/4] Подготовка промпта...")
-        prompt, fallback_prompt, product_id, context_cleared = self._preprocessor.query()
+        prompt, fallback, product_id, context_cleared = self._preprocessor.query()
 
         if prompt.startswith(_DIRECT_ANSWER_PREFIX):
-            # Прямой ответ без LLM
             raw = prompt[len(_DIRECT_ANSWER_PREFIX):]
             formatted = self._postprocessor.report(raw)
             logger.info("[2-3/4] Прямой ответ без LLM. Длина={} симв.", len(formatted))
@@ -32,19 +31,19 @@ class AIAssistantService:
             logger.info("[1/4] Промпт готов. product_id={}, длина промпта={} симв.", product_id, len(prompt))
             logger.info("[2/4] Отправка первичного запроса в модель ({})...", self._model.__class__.__name__)
 
-            # Попытка #1: Первичный запрос (конкретный продукт)
             raw_response = self._model.response(prompt)
             logger.info("[2/4] Ответ получен. Длина={} симв.", len(raw_response))
 
-            # Попытка #2: Проверка на нехватку информации и вызов Fallback (категория 'Общее')
-            if "NOT_ENOUGH_INFO" in raw_response and fallback_prompt is not None:
-                logger.info("[2/4] Ответ в продукте не найден (NOT_ENOUGH_INFO). Переключение на базу 'Общее'...")
+            # Переключение на fallback
+            if "NOT_ENOUGH_INFO" in raw_response and fallback is not None:
+                fallback_prompt, product_id = fallback  # <--- Автоматически обновляем product_id на 'Общее'
+
+                logger.info("[2/4] Ответ в продукте не найден. Переключение на базу 'Общее', product_id={}", product_id)
                 logger.info("[2/4] Отправка резервного запроса в модель (длина={} симв.)...", len(fallback_prompt))
 
                 raw_response = self._model.response(fallback_prompt)
                 logger.info("[2/4] Резервный ответ получен. Длина={} симв.", len(raw_response))
 
-                # Если и в 'Общей' базе ничего не нашлось
                 if "NOT_ENOUGH_INFO" in raw_response:
                     raw_response = "К сожалению, я не нашел ответа на ваш вопрос ни в информации о продукте, ни в общих правилах страхования."
 
