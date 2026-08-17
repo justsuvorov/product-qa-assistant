@@ -56,7 +56,6 @@ class TextPreprocessor(Preprocessor):
         question_record = self._db.get_question(self._request.message_id)
         logger.info("Вопрос получен: \"{}\"", question_record.question_text[:120])
 
-        is_list_request = _is_product_list_request(question_record.question_text)
         cleaned = _clean_text(question_record.question_text)
         cleaned = self._mapper.normalize(cleaned)
 
@@ -86,18 +85,6 @@ class TextPreprocessor(Preprocessor):
                 content = "\n\n---\n\n".join(p.content for p in general_records if p.content)
                 return f"Общие правила и условия страхования:\n\n{content}", gen_id
             return "Общая информация о правилах страхования отсутствует в базе.", None
-
-        # Обработка запроса на СПИСОК продуктов
-        if is_list_request:
-            logger.info("Запрос на список продуктов — обрабатываем через LLM")
-            unique_names = set(p.name for p in all_products if p.name and p.name != "Общее")
-            product_list = "\n".join(f"• {name}" for name in unique_names)
-            product_info = f"Доступные страховые продукты:\n\n{product_list}"
-            logger.info(product_info)
-
-            list_engine = PromptEngine(role=self._list_request_role, template=self._prompt_engine._template)
-            primary_prompt = list_engine.build(question=cleaned, product_info=product_info)
-            return primary_prompt, None, None, False
 
         # ПОИСК конкретного продукта (исключая категорию "Общий")
         specific_products = [
@@ -135,19 +122,6 @@ class TextPreprocessor(Preprocessor):
 
 _DIRECT_ANSWER_PREFIX = "\x00DIRECT\x00"
 
-_LIST_REQUEST_PATTERN = re.compile(
-    r"(что|чем)\s+(ты\s+)?(умеешь|можешь|знаешь)"
-    r"|какие\s+(есть\s+)?(продукт|программ|страховк|полис)"
-    r"|(список|перечень)\s+(продукт|программ|страховк|страховок|полис)"
-    r"|доступные\s+(продукт|программ|страховк)"
-    r"|(помощь|помоги|помогите|справка)",
-    re.IGNORECASE,
-)
-
-
-def _is_product_list_request(text: str) -> bool:
-    return bool(_LIST_REQUEST_PATTERN.search(text))
-
 
 def _clean_text(text: str) -> str:
     """Базовая очистка: лишние пробелы, спецсимволы."""
@@ -156,34 +130,76 @@ def _clean_text(text: str) -> str:
     return text
 
 def _find_best_product(question: str, products: list) -> list:
-    "Использует RapidFuzz для быстрого отбора кандидатов и Cross-Encoder для точного ранжирования."
-    if not question or not products:
-        return []
+  """Использует RapidFuzz для отбора кандидатов и Cross-Encoder для точного ранжирования."""
+  if not question or not products:
+    return []
 
-    fuzzy_candidates = process.extract(
-        question,
-        list(dict.fromkeys([p.name for p in products])),
-        scorer=fuzz.token_set_ratio,
-        limit=10
+  # Быстрый нечеткий поиск кандидатов
+  fuzzy_candidates = process.extract(
+      question,
+      list(dict.fromkeys([p.name for p in products])),
+      scorer=fuzz.token_set_ratio,
+      limit=10,
+  )
+  if not fuzzy_candidates or fuzzy_candidates[0][1] < 30:
+    logger.warning("Не найдены продукты, совпадающие с текстом вопроса")
+    return []
+
+  candidate_names = [item[0] for item in fuzzy_candidates]
+  logger.info(f"Совпадения продуктов по тексту вопроса: {candidate_names}")
+
+  # Оценка через Cross-Encoder
+  pairs = [[question, name] for name in candidate_names]
+  raw_scores = reranker.predict(pairs)
+
+  # Ранжирование по убыванию скора
+  ranked_results = sorted(
+      zip(candidate_names, raw_scores), key=lambda x: x[1], reverse=True
+  )
+
+  logger.info(f"Ранжированные продукты: {ranked_results}")
+
+  best_product, best_score = ranked_results[0]
+
+  # Проверка правила отсечения, если кандидатов больше 1
+  if len(ranked_results) > 1:
+    second_product, second_score = ranked_results[1]
+
+    # Определяем разницу между первым и вторым местом
+    # 1e-9 чтобы не делить на 0
+    score_ratio = (best_score + 1e-9) / (second_score + 1e-9)
+    abs_margin = best_score - second_score
+
+    logger.info(
+        f"Top-1: '{best_product}' ({best_score:.6f}) | "
+        f"Top-2: '{second_product}' ({second_score:.6f}) | "
+        f"Ratio: {score_ratio:.2f}x | Margin: {abs_margin:.6f}"
     )
-    if not fuzzy_candidates or fuzzy_candidates[0][1] < 20:
-        logger.warning("Не найдены продукты, совпадающие с текстом вопроса")
-        return []
 
-    candidate_names = [item[0] for item in fuzzy_candidates]
-    logger.info(f"Совпадения продуктов по тексту вопроса: {candidate_names}")
+    # Условия отсечения:
+    MIN_RATIO = 1.5  # Top-1 должен превышать Top-2 хотя бы в 1.5 раза
+    MIN_ABS_MARGIN = 0.005  # Либо разница между ними от 0.005
+    MIN_ABSOLUTE_SCORE = 0.0005  # Защита от случая, когда все скоры порядка ~0.000001
 
-    pairs = [[question, name] for name in candidate_names]
-    scores = reranker.predict(pairs)
+    is_clear_winner = (
+        score_ratio >= MIN_RATIO or abs_margin >= MIN_ABS_MARGIN
+    ) and (best_score >= MIN_ABSOLUTE_SCORE)
 
-    best_idx = int(np.argmax(scores))
-    best_product = candidate_names[best_idx]
-    best_score = scores[best_idx]
+    if not is_clear_winner:
+      logger.warning(
+        "Явный лидер не выявлен: недостаточное превосходство Top-1 над Top-2"
+        f" (Ratio: {score_ratio:.2f} < {MIN_RATIO}, Margin: {abs_margin:.6f} <"
+        f" {MIN_ABS_MARGIN})"
+      )
+      return []
 
-    logger.info(f"Scores продуктов: {list(zip(candidate_names, scores))}")
+  # Если кандидат всего один, проверяем только базовый минимальный уровень
+  else:
+    if best_score < 0.0005:
+      logger.warning(
+          f"Единственный кандидат '{best_product}' имеет слишком низкий скор"
+          f" ({best_score})"
+      )
+      return []
 
-    if best_score < 0.1:
-        logger.warning("Нет продукта с score >= 0.1")
-        return []
-
-    return [p for p in products if p.name == best_product]
+  return [p for p in products if p.name == best_product]
