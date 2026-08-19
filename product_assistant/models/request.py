@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Optional
+import uuid
 
 
 class APIRequest(BaseModel):
@@ -9,12 +10,14 @@ class APIRequest(BaseModel):
     message_id: int = Field(..., description="Уникальный ID сообщения в базе данных")
     user_id: Optional[int] = Field(None, description="ID пользователя (опционально)")
     priority: int = Field(0, description="Приоритет обработки")
+    session_id: str = Field(..., description="Уникальный ID сессии для сохранения истории диалога")
 
     class Config:
         json_schema_extra = {
             "example": {
                 "message_id": 42,
                 "user_id": 1001,
-                "priority": 1
+                "priority": 1,
+                "session_id": 22,
             }
         }
