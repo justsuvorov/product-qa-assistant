@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     qwen_api_url: str = Field("", alias="QWEN_API_URL")
     qwen_model_name: str = Field("Qwen3.6-35B-A3B", alias="QWEN_MODEL_NAME")
     qwen_max_tokens: int = Field(100000, alias="QWEN_MAX_TOKENS")
-    ai_temperature: float = Field(0.3, alias="AI_TEMPERATURE")
+    ai_temperature: float = Field(0.2, alias="AI_TEMPERATURE")
 
     gemini_api_key: SecretStr = Field(..., alias="GEMINI_API_KEY")
     model_name: str = Field("gemini-3.1-flash-lite", alias="AI_MODEL_NAME")
@@ -63,7 +63,6 @@ class Settings(BaseSettings):
             "Правила оформления:"
             "- Используй ТОЛЬКО те названия и URL, которые явно переданы вместе с Контекстом. Запрещено придумывать ссылки."
             "- Если URL в контексте отсутствует, указывай только название документа: `Источник: Название документа`."
-            ),
         ),
         alias="AI_ROLE"
     )
@@ -102,27 +101,20 @@ class Settings(BaseSettings):
 
     ai_prompt_template: str = Field(
         default="""
-{role}
-
-### ИНФОРМАЦИЯ О ПРОДУКТЕ:
-{product_type}
-{product_info}
-
-### ИСТОРИЯ ДИАЛОГА:
-{context}
-
-### ВОПРОС ПОЛЬЗОВАТЕЛЯ:
-{question}
-
-### ИНСТРУКЦИИ ДЛЯ ОТВЕТА:
-1. Ответь на вопрос, основываясь на информации выше
-2. Обязательно укажи URL источника информации в формате: Источник: [URL]
-3. Если информация из раздела "Страница сайта" — используй указанный там URL
-4. Если информация из документа — используй URL из раздела "Источник:" документа
-5. Ответ должен быть точным, кратким и содержать ссылку на источник
-
-### ОТВЕТ:
-""",
+            {role}
+            
+            ### ИНФОРМАЦИЯ О ПРОДУКТЕ:
+            {product_type}
+            {product_info}
+            
+            ### ИСТОРИЯ ДИАЛОГА:
+            {context}
+            
+            ### ВОПРОС ПОЛЬЗОВАТЕЛЯ:
+            {question}
+            
+            ### ОТВЕТ:
+            """,
         alias="AI_PROMPT_TEMPLATE"
     )
 
