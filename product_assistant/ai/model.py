@@ -27,6 +27,36 @@ class AIModel(ABC):
 # Локальные модели (запущены в RAM на том же хосте)
 # ==============================================================================
 
+class LocalAIModel(AIModel, ABC):
+    """
+    Интерфейс для локальных LLM-моделей, работающих в оперативной памяти.
+    Примеры: Ollama, llama.cpp, LM Studio, GPT4All.
+
+    Наследник обязан реализовать:
+        - load_model() — загрузка весов в RAM
+        - response()   — генерация ответа
+    """
+
+    def __init__(self, model_name: str, **kwargs):
+        self._model_name = model_name
+        self._model = None
+        self.load_model(**kwargs)
+
+    @abstractmethod
+    def load_model(self, **kwargs):
+        """Загружает модель в оперативную память."""
+
+    @abstractmethod
+    def response(self, query: str) -> str:
+        """Генерирует ответ локальной моделью."""
+
+    def is_loaded(self) -> bool:
+        return self._model is not None
+
+
+# ==============================================================================
+# Внешние сервисы (API-модели)
+# ==============================================================================
 class VskAIModel(AIModel):
     """
     VSK AI via OpenAI-compatible chat API with automatic retry on service errors.
@@ -184,36 +214,6 @@ class VskAIModel(AIModel):
             bool(cls._EMPTY_RESPONSE_RE.search(text))
             or "no response" in text
         )
-class LocalAIModel(AIModel, ABC):
-    """
-    Интерфейс для локальных LLM-моделей, работающих в оперативной памяти.
-    Примеры: Ollama, llama.cpp, LM Studio, GPT4All.
-
-    Наследник обязан реализовать:
-        - load_model() — загрузка весов в RAM
-        - response()   — генерация ответа
-    """
-
-    def __init__(self, model_name: str, **kwargs):
-        self._model_name = model_name
-        self._model = None
-        self.load_model(**kwargs)
-
-    @abstractmethod
-    def load_model(self, **kwargs):
-        """Загружает модель в оперативную память."""
-
-    @abstractmethod
-    def response(self, query: str) -> str:
-        """Генерирует ответ локальной моделью."""
-
-    def is_loaded(self) -> bool:
-        return self._model is not None
-
-
-# ==============================================================================
-# Внешние сервисы (API-модели)
-# ==============================================================================
 
 class ServiceLLMModel(AIModel, ABC):
     """
