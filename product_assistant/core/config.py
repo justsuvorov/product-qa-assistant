@@ -6,10 +6,12 @@ class Settings(BaseSettings):
     database_url: str = Field(..., alias="DATABASE_URL")
 
     # AI — Qwen через внутренний OpenAI-compatible API
-    qwen_api_url: str = Field("", alias="QWEN_API_URL")
-    qwen_model_name: str = Field("Qwen3.6-35B-A3B", alias="QWEN_MODEL_NAME")
-    qwen_max_tokens: int = Field(100000, alias="QWEN_MAX_TOKENS")
-    ai_temperature: float = Field(0.2, alias="AI_TEMPERATURE")
+    vsk_api_url: str = Field("", alias="VSK_API_URL")
+    vsk_model_name: str = Field("Qwen3.6-35B-A3B", alias="VSK_MODEL_NAME")
+    vsk_max_tokens: int = Field(100000, alias="VSK_MAX_TOKENS")
+    ai_temperature: float = Field(0.0, alias="AI_TEMPERATURE")
+    vsk_thinking_budget: int = Field(1000, alias="VSK_THINKING_TOKEN_BUDGET")
+    vsk_num_ctx: int = Field(500000, alias="VSK_NUM_CTX")
 
     gemini_api_key: SecretStr = Field(..., alias="GEMINI_API_KEY")
     model_name: str = Field("gemini-3.1-flash-lite", alias="AI_MODEL_NAME")
@@ -107,7 +109,6 @@ class Settings(BaseSettings):
             {role}
             
             ### ИНФОРМАЦИЯ О ПРОДУКТЕ:
-            {product_type}
             {product_info}
             
             ### ИСТОРИЯ ДИАЛОГА:
