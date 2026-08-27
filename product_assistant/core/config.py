@@ -7,6 +7,7 @@ class Settings(BaseSettings):
 
     # AI — Qwen через внутренний OpenAI-compatible API
     vsk_api_url: str = Field("", alias="VSK_API_URL")
+    vsk_api_key: str = Field("", alias="VSK_API_KEY")
     vsk_model_name: str = Field("Qwen3.6-35B-A3B", alias="VSK_MODEL_NAME")
     vsk_max_tokens: int = Field(100000, alias="VSK_MAX_TOKENS")
     ai_temperature: float = Field(0.0, alias="AI_TEMPERATURE")
