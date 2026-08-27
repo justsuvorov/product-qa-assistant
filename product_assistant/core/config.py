@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     vsk_model_name: str = Field("Qwen3.6-35B-A3B", alias="VSK_MODEL_NAME")
     vsk_max_tokens: int = Field(100000, alias="VSK_MAX_TOKENS")
     ai_temperature: float = Field(0.0, alias="AI_TEMPERATURE")
-    vsk_thinking_budget: int = Field(1000, alias="VSK_THINKING_TOKEN_BUDGET")
+    vsk_thinking_token_budget: int = Field(1000, alias="VSK_THINKING_TOKEN_BUDGET")
     vsk_num_ctx: int = Field(500000, alias="VSK_NUM_CTX")
 
     gemini_api_key: SecretStr = Field(..., alias="GEMINI_API_KEY")
