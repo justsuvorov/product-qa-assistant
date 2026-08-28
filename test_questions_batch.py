@@ -1,7 +1,13 @@
 """
 Скрипт для батч-тестирования API /api/update.
 
-Берёт список вопросов из JSON-файла, для каждого:
+Перед прогоном вопросов скрипт сам инициализирует БД (создаёт таблицы) и
+запускает парсинг источника продуктов согласно текущему .env (SCRAPER_TYPE,
+PRODUCTS_WEBSITE_URL / LOCAL_FILES_DIR, PRODUCT_PATHS и т.д.) — той же логикой,
+что использует main.py при старте сервиса. Так тест не зависит от того, был ли
+уже поднят и наполнен API.
+
+Затем для каждого вопроса:
   1. Создаёт запись UserQuestion в БД напрямую (эмулируя сохранение вопроса ботом).
   2. Отправляет POST /api/update на работающий сервис.
   3. Замеряет время ответа, читает текст ответа и выбранный продукт (из БД).
@@ -11,6 +17,7 @@
     python test_questions_batch.py
     python test_questions_batch.py --base-url http://localhost:8000 --questions test_questions.json
     python test_questions_batch.py --same-session   # вопросы одной сессии (накапливается контекст)
+    python test_questions_batch.py --no-scrape       # не парсить заново, использовать то, что уже в БД
 """
 
 import argparse
@@ -24,8 +31,10 @@ from pathlib import Path
 import httpx
 from loguru import logger
 
+from product_assistant.core.config import settings
 from product_assistant.core.database import get_db_connection, init_db
 from product_assistant.models.schema import DBObject, UserQuestion
+from main import _run_scraping
 
 logger.remove()
 logger.add(sys.stderr, level="INFO")
@@ -126,12 +135,22 @@ def main():
     parser.add_argument("--same-session", action="store_true",
                          help="Слать все вопросы в рамках одной сессии (накопление контекста диалога)")
     parser.add_argument("--timeout", type=float, default=120.0, help="Таймаут HTTP-запроса, сек")
+    parser.add_argument("--no-scrape", action="store_true",
+                         help="Не парсить источник продуктов заново, использовать то, что уже в БД")
     args = parser.parse_args()
 
     questions = load_questions(args.questions)
     logger.info("Загружено вопросов: {}", len(questions))
 
+    logger.info("Инициализация БД (создание таблиц, если их нет)...")
     init_db()
+
+    if args.no_scrape:
+        logger.info("--no-scrape: пропускаем парсинг, используем текущее содержимое БД")
+    else:
+        logger.info("Парсинг источника продуктов согласно .env (SCRAPER_TYPE={})...", settings.scraper_type)
+        _run_scraping()
+
     db_session = get_db_connection()
     db = DBObject(connection=db_session)
 
@@ -139,6 +158,9 @@ def main():
 
     try:
         products_by_id = {p.id: p for p in db.get_all_products()}
+        logger.info("Продуктов в БД: {}", len(products_by_id))
+        if not products_by_id:
+            logger.warning("В БД нет ни одного продукта — ответы будут без привязки к продукту")
 
         results = []
         for i, question in enumerate(questions, 1):
