@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     qwen_api_url: str = Field("", alias="QWEN_API_URL")
     qwen_model_name: str = Field("Qwen3.6-35B-A3B", alias="QWEN_MODEL_NAME")
     qwen_max_tokens: int = Field(100000, alias="QWEN_MAX_TOKENS")
-    ai_temperature: float = Field(0.3, alias="AI_TEMPERATURE")
+    ai_temperature: float = Field(0.0, alias="AI_TEMPERATURE")
 
     gemini_api_key: SecretStr = Field(..., alias="GEMINI_API_KEY")
     model_name: str = Field("gemini-3.1-flash-lite", alias="AI_MODEL_NAME")

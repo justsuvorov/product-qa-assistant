@@ -177,6 +177,7 @@ class QwenModel(ServiceLLMModel):
                 "prompt": query,
                 "max_tokens": settings.qwen_max_tokens,
                 "enable_thinking": False,
+                "temperature": settings.ai_temperature,
             },
         )
         resp.raise_for_status()
