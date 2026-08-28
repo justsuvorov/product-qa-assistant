@@ -34,6 +34,24 @@ services:
   api:
     build:
       context: .
+    develop:
+      watch:
+        paths:
+          - action: sync
+            path: .
+            target: /app
+            ignore:
+              - .git
+              - __pycache__
+              - .pytest_cache
+              - .mypy_cache
+              - .venv
+              - venv
+              - env
+              - .env
+              - .DS_Store
+          - action: rebuild
+            path: ./requirements.txt
     container_name: product_qa_api
     restart: always
     depends_on:
