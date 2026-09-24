@@ -59,7 +59,12 @@ class TextPreprocessor(Preprocessor):
         cleaned = _clean_text(question_record.question_text)
         cleaned = self._mapper.normalize(cleaned)
 
-        context = self._db.get_context(self._request.user_id)
+        # Получаем session_id
+        session_id = getattr(question_record, 'session_id', None) or getattr(self._request, 'session_id', None)
+
+        # Загружаем контекст и последний продукт в рамках текущей сессии
+        context = self._db.get_context(self._request.user_id, session_id=session_id)
+        last_product = self._db.get_last_product_for_user(self._request.user_id, session_id=session_id)
 
         # Сохраняем очищенный текст
         self._db.connection.execute(
@@ -93,14 +98,28 @@ class TextPreprocessor(Preprocessor):
         ]
         products_matched = _find_best_product(cleaned, specific_products)
 
-        # СБОРКА ПРОМПТОВ
-        if products_matched:
-            first_matched = products_matched[0]
-            product_id = first_matched.id
-            logger.info("Выбран конкретный продукт: \"{}\" (id={})", first_matched.name, product_id)
+        # Выбор продукта
+        selected_product = None
+        product_content = ""
 
+        if products_matched:
+            selected_product = products_matched[0]
             product_content = "\n\n---\n\n".join(p.content for p in products_matched if p.content)
-            primary_info = f"Продукт: {first_matched.name}\n\n{product_content}"
+            logger.info("Выбран продукт из вопроса: \"{}\" (id={})", selected_product.name, selected_product.id)
+
+            if last_product and last_product.id != selected_product.id:
+                context_cleared = True
+
+        elif last_product:
+            selected_product = last_product
+            product_content = selected_product.content or ""
+            logger.info("Продукт взят из истории сессии: \"{}\" (id={})", selected_product.name, selected_product.id)
+
+        # Сборка промптов
+        if selected_product:
+            product_id = selected_product.id
+            primary_info = f"Продукт: {selected_product.name}\n\n{product_content}"
+
             primary_prompt = self._prompt_engine.build(question=cleaned, product_info=primary_info, context=context)
 
             # Готовим fallback как пара: (промпт, id_продукта_общее)
@@ -110,7 +129,7 @@ class TextPreprocessor(Preprocessor):
             fallback = (fallback_prompt, general_product_id)
 
         else:
-            # Конкретный продукт не найден — сразу подставляем 'Общее' и его product_id
+            # Продукт не найден ни в вопросе, ни в истории - используем базу "Общее"
             logger.info("Конкретный продукт не найден — используем базу 'Общее'")
             general_info, product_id = _get_general_info()
             primary_prompt = self._prompt_engine_common.build(question=cleaned, product_info=general_info,

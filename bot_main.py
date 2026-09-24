@@ -1,9 +1,11 @@
 import asyncio
 import os
 import httpx
+import uuid
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.fsm.context import FSMContext
 from sqlalchemy.orm import Session
 
 from product_assistant.core.config import settings
@@ -27,7 +29,9 @@ def _main_keyboard() -> ReplyKeyboardMarkup:
 
 
 @dp.message(CommandStart())
-async def handle_start(message: Message):
+async def handle_start(message: Message, state: FSMContext):
+    await state.update_data(session_id=str(uuid.uuid4()))
+
     await message.answer(
         "Привет! Я помогу ответить на вопросы по страховым продуктам ВСК.\n\n"
         "Задайте вопрос — например:\n"
@@ -39,18 +43,20 @@ async def handle_start(message: Message):
 
 
 @dp.message(F.text == _BTN_CLEAR)
-async def handle_clear_context(message: Message):
-    db_session = get_db_connection()
-    db = DBObject(connection=db_session)
-    try:
-        db.clear_user_context(message.from_user.id)
-    finally:
-        db_session.close()
+async def handle_clear_context(message: Message, state: FSMContext):
+    await state.update_data(session_id=str(uuid.uuid4()))
     await message.answer("✅ Контекст диалога очищен. Можете задавать новый вопрос.")
 
 
 @dp.message(F.text)
-async def handle_text(message: Message):
+async def handle_text(message: Message, state: FSMContext):
+    state_data = await state.get_data()
+    session_id = state_data.get("session_id")
+
+    if not session_id:
+        session_id = str(uuid.uuid4())
+        await state.update_data(session_id=session_id)
+
     status_msg = await message.answer("⏳ Запрос получен, ищу информацию...")
 
     db_session: Session = get_db_connection()
@@ -60,12 +66,14 @@ async def handle_text(message: Message):
     try:
         question = db.save_question(
             question_text=message.text,
+            session_id=session_id,
             user_id=message.from_user.id if message.from_user else None,
         )
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             payload = {
                 "message_id": question.id,
+                "session_id": session_id,
                 "user_id": question.user_id,
             }
             response = await client.post(FASTAPI_URL, json=payload)

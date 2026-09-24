@@ -25,6 +25,7 @@ class UserQuestion(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    session_id: Mapped[str] = mapped_column(String(36), index=True, nullable=True)
     question_text: Mapped[str] = mapped_column(Text)
     cleaned_text: Mapped[str] = mapped_column(Text, nullable=True)
     product_id: Mapped[int] = mapped_column(Integer, ForeignKey("products.id"), nullable=True)
@@ -38,8 +39,8 @@ class DBObject:
     def __init__(self, connection: Session):
         self.connection = connection
 
-    def save_question(self, question_text: str, user_id: int | None = None) -> UserQuestion:
-        question = UserQuestion(question_text=question_text, user_id=user_id)
+    def save_question(self, question_text: str, session_id: str, user_id: int | None = None) -> UserQuestion:
+        question = UserQuestion(question_text=question_text, user_id=user_id, session_id=session_id)
         self.connection.add(question)
         self.connection.commit()
         self.connection.refresh(question)
@@ -53,18 +54,16 @@ class DBObject:
             raise ValueError(f"Вопрос с id={message_id} не найден")
         return result
 
-    def get_context(self, user_id: int | None, minutes: int = 20) -> list[dict]:
-        """Возвращает историю диалога пользователя за последние N минут."""
-        if user_id is None:
+    def get_context(self, user_id: int | None, session_id: str | None) -> list[dict]:
+        """Возвращает историю диалога в рамках конкретной сессии"""
+        if user_id is None or not session_id:
             return []
-
-        time_border = datetime.now(UTC) - timedelta(minutes=minutes)
 
         stmt = (
             select(UserQuestion)
             .where(UserQuestion.user_id == user_id)
-            .where(UserQuestion.created_at_for_model >= time_border)
-            .order_by(UserQuestion.created_at_for_model.asc())
+            .where(UserQuestion.session_id >= session_id)
+            .order_by(UserQuestion.created_at.asc())
         )
 
         rows = self.connection.execute(stmt).scalars().all()
@@ -121,21 +120,20 @@ class DBObject:
     def get_all_products(self) -> list[Product]:
         return self.connection.execute(select(Product)).scalars().all()
 
-    def get_last_product_for_user(self, user_id: int | None, minutes: int = 20) -> Product | None:
-        """Последний продукт пользователя в пределах активного окна контекста."""
-        if user_id is None:
+    def get_last_product_for_user(self, user_id: int | None, session_id: str | None) -> Product | None:
+        """Последний продукт в рамках текущей сессии"""
+        if user_id is None or not session_id:
             return None
 
-        time_border = datetime.now(UTC) - timedelta(minutes=minutes)
         stmt = (
             select(Product)
             .join(UserQuestion, UserQuestion.product_id == Product.id)
             .where(
                 UserQuestion.user_id == user_id,
+                UserQuestion.session_id == session_id,
                 UserQuestion.product_id.is_not(None),
-                UserQuestion.created_at_for_model >= time_border,
             )
-            .order_by(UserQuestion.created_at_for_model.desc())
+            .order_by(UserQuestion.created_at.desc())
             .limit(1)
         )
         return self.connection.execute(stmt).scalar_one_or_none()
