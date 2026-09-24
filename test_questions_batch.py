@@ -27,6 +27,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+import pandas as pd
 
 import httpx
 from loguru import logger
@@ -191,10 +192,16 @@ def main():
                 "product": product,
             })
 
+        # .md
         report_md = build_report(results)
-        output_path = args.output or f"test_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
-        Path(output_path).write_text(report_md, encoding="utf-8")
-        logger.info("Отчёт сохранён: {}", output_path)
+        output_time = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_path_md = args.output or f"test_report_{output_time}.md"
+        Path(output_path_md).write_text(report_md, encoding="utf-8")
+
+        # .xlsx
+        pd.DataFrame(results).to_excel(f"test_report_{output_time}.xlsx")
+
+        logger.info("Отчёт сохранён: {}", output_path_md)
 
     finally:
         db_session.close()

@@ -1,20 +1,30 @@
+from typing import Optional
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, SecretStr
 
 
 class Settings(BaseSettings):
     database_url: str = Field(..., alias="DATABASE_URL")
-
+    # --- AI PROVIDER ---
+    ai_provider: str = Field("vsk", alias="AI_PROVIDER")
     # AI — Qwen через внутренний OpenAI-compatible API
     qwen_api_url: str = Field("", alias="QWEN_API_URL")
     qwen_model_name: str = Field("Qwen3.6-35B-A3B", alias="QWEN_MODEL_NAME")
     qwen_max_tokens: int = Field(100000, alias="QWEN_MAX_TOKENS")
     ai_temperature: float = Field(0.0, alias="AI_TEMPERATURE")
 
-    gemini_api_key: SecretStr = Field(..., alias="GEMINI_API_KEY")
+    # VSK AI (OpenAI-compatible /v1/chat/completions)
+    vsk_api_url: str = Field("https://llm.ai-api.vsk.ru/v1/chat/completions", alias="VSK_API_URL")
+    vsk_api_key: Optional[SecretStr] = Field(None, alias="VSK_API_KEY")
+    vsk_model_name: str = Field("Qwen3.6-35B-A3B", alias="VSK_MODEL_NAME")
+    vsk_max_tokens: int = Field(100000, alias="VSK_MAX_TOKENS")
+    vsk_thinking_token_budget: int = Field(1000, alias="VSK_THINKING_TOKEN_BUDGET")
+
+    gemini_api_key: SecretStr = Field("", alias="GEMINI_API_KEY")
     model_name: str = Field("gemini-3.1-flash-lite", alias="AI_MODEL_NAME")
     # Telegram
-    telegram_bot_token: SecretStr | None = Field(None, alias="TELEGRAM_BOT_TOKEN")
+    telegram_bot_token: SecretStr | None = Field("", alias="TELEGRAM_BOT_TOKEN")
 
     # Products website to scrape
     products_website_url: str = Field("", alias="PRODUCTS_WEBSITE_URL")
@@ -105,10 +115,11 @@ class Settings(BaseSettings):
 
             ### ИНСТРУКЦИИ ДЛЯ ОТВЕТА:
             1. Ответь на вопрос, основываясь на информации выше
-            2. Обязательно укажи URL источника информации в формате: Источник: [URL]
-            3. Если информация из раздела "Страница сайта" — используй указанный там URL
-            4. Если информация из документа — используй URL из раздела "Источник:" документа
-            5. Ответ должен быть точным, кратким и содержать ссылку на источник
+            2. Если пользователь спрашивает о каких либо проявлениях военных действий, ответь одним уточняющим вопросом: 'Прошу уточнить, вас интересует покрытие военных действий или БПЛА?'
+            3. Обязательно укажи URL источника информации в формате: Источник: [URL]
+            4. Если информация из раздела "Страница сайта" — используй указанный там URL
+            5. Если информация из документа — используй URL из раздела "Источник:" документа
+            6. Ответ должен быть точным, кратким и содержать ссылку на источник
 
             ### ОТВЕТ:
             """,
